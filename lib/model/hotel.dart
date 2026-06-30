@@ -1,7 +1,7 @@
 class HotelModel {
   final String id;
   final String providerId; // ID của chủ khách sạn (Dùng để lọc dữ liệu)
-  final String name;       // Đã sửa lỗi dính comment
+  final String name; // Đã sửa lỗi dính comment
   final String address;
   final String description;
   final String imageUrl;

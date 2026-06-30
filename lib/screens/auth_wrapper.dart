@@ -1,13 +1,11 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../services/auth.dart';
-import '../model/user.dart';
+import 'package:flutter/material.dart';
 
-// Import các màn hình thực tế đã tạo
+import '../model/user.dart';
+import '../services/auth.dart';
 import 'auth/login_screen.dart';
 import 'customer/home_screen.dart';
 import 'provider/dashboard_screen.dart';
-// import 'admin/admin_screen.dart'; // Mở ra khi bạn tạo folder admin
 
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
@@ -15,76 +13,103 @@ class AuthWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
-      // 1. Lắng nghe trạng thái đăng nhập từ Firebase Auth
       stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-
-        // Trạng thái đang tải dữ liệu từ Firebase
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+      builder: (context, authSnapshot) {
+        if (authSnapshot.connectionState == ConnectionState.waiting) {
+          return const _LoadingScreen();
         }
 
-        // 2. Nếu người dùng CHƯA đăng nhập -> Trả về màn hình Đăng nhập
-        if (!snapshot.hasData) {
-          return const LoginScreen();
-        }
+        final firebaseUser = authSnapshot.data;
+        if (firebaseUser == null) return const LoginScreen();
 
-        // 3. Nếu ĐÃ đăng nhập -> Dùng FutureBuilder để lấy Role từ Firestore
-        return FutureBuilder<UserModel?>(
-          future: AuthService().getUserDetails(),
+        return StreamBuilder<UserModel?>(
+          stream: AuthService().watchUser(firebaseUser.uid),
           builder: (context, userSnapshot) {
-
-            // Đang lấy thông tin User (Role) từ Firestore
             if (userSnapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
+              return const _LoadingScreen();
+            }
+
+            if (userSnapshot.hasError) {
+              return _ErrorScreen(message: userSnapshot.error.toString());
+            }
+
+            final user = userSnapshot.data;
+            if (user == null) {
+              return const _ErrorScreen(
+                message: 'Không tìm thấy hồ sơ người dùng.',
               );
             }
 
-            // Nếu lấy được dữ liệu người dùng thành công
-            if (userSnapshot.hasData && userSnapshot.data != null) {
-              UserModel user = userSnapshot.data!;
-
-              // --- ĐIỀU HƯỚNG DỰA TRÊN VAI TRÒ (ROLE) ---
-
-              if (user.role == 'admin') {
-                // Nếu là Admin -> Vào trang quản trị
-                return const Scaffold(
-                  body: Center(child: Text("Giao diện Quản trị Admin (Chưa tạo)")),
-                );
-              }
-
-              else if (user.role == 'provider') {
-                // Nếu là Nhà cung cấp -> Vào trang quản lý của họ
-                return const ProviderDashboard();
-              }
-
-              else {
-                // Mặc định (hoặc role 'customer') -> Vào trang khách du lịch
-                return const CustomerHomeScreen();
-              }
-            }
-
-            // Trường hợp lỗi: Đã đăng nhập Auth nhưng không có dữ liệu trong Firestore
-            return Scaffold(
-              body: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text("Không tìm thấy dữ liệu người dùng!"),
-                    ElevatedButton(
-                      onPressed: () => AuthService().signOut(),
-                      child: const Text("Đăng xuất và thử lại"),
-                    )
-                  ],
-                ),
-              ),
-            );
+            return switch (user.role) {
+              UserRole.admin => const _AdminPlaceholder(),
+              UserRole.provider => const ProviderDashboard(),
+              UserRole.customer => const CustomerHomeScreen(),
+            };
           },
         );
       },
+    );
+  }
+}
+
+class _LoadingScreen extends StatelessWidget {
+  const _LoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+  }
+}
+
+class _ErrorScreen extends StatelessWidget {
+  const _ErrorScreen({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 48),
+              const SizedBox(height: 12),
+              Text(message, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: AuthService().signOut,
+                child: const Text('Đăng xuất'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminPlaceholder extends StatelessWidget {
+  const _AdminPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Quản trị hệ thống'),
+        actions: [
+          IconButton(
+            tooltip: 'Đăng xuất',
+            onPressed: AuthService().signOut,
+            icon: const Icon(Icons.logout),
+          ),
+        ],
+      ),
+      body: const Center(
+        child: Text('Trang quản trị sẽ được bổ sung ở phần tiếp theo.'),
+      ),
     );
   }
 }

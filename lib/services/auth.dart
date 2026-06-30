@@ -1,99 +1,98 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import '../model/user.dart';
 
 class AuthService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  AuthService({FirebaseAuth? auth, FirebaseFirestore? firestore})
+    : _auth = auth ?? FirebaseAuth.instance,
+      _firestore = firestore ?? FirebaseFirestore.instance;
 
-  // 1. ĐĂNG KÝ (Mặc định khi đăng ký tài khoản mới luôn là 'customer')
-  Future<String?> signUp({
+  final FirebaseAuth _auth;
+  final FirebaseFirestore _firestore;
+
+  User? get currentUser => _auth.currentUser;
+
+  Future<String> signUp({
     required String email,
     required String password,
     required String fullName,
     required String phoneNumber,
   }) async {
+    UserCredential? credential;
+
     try {
-      // Tạo tài khoản trên Firebase Auth
-      UserCredential credential = await _auth.createUserWithEmailAndPassword(
-        email: email,
+      credential = await _auth.createUserWithEmailAndPassword(
+        email: email.trim(),
         password: password,
       );
 
-      // Tạo đối tượng UserModel để lưu thông tin bổ sung vào Firestore
-      UserModel newUser = UserModel(
+      final user = UserModel(
         uid: credential.user!.uid,
-        email: email,
-        fullName: fullName,
-        phoneNumber: phoneNumber,
-        role: 'customer', // Mặc định là khách hàng du lịch
+        email: email.trim().toLowerCase(),
+        fullName: fullName.trim(),
+        phoneNumber: phoneNumber.trim(),
       );
 
-      // Lưu dữ liệu vào collection 'users'
-      await _firestore
-          .collection('users')
-          .doc(credential.user!.uid)
-          .set(newUser.toMap());
+      await _firestore.collection('users').doc(user.uid).set(user.toMap());
 
-      return "success";
-    } catch (e) {
-      return e.toString();
+      return 'success';
+    } on FirebaseAuthException catch (error) {
+      return _authMessage(error);
+    } catch (error) {
+      // Tránh tài khoản Auth tồn tại nhưng thiếu hồ sơ Firestore.
+      await credential?.user?.delete();
+      return 'Không thể tạo hồ sơ người dùng: $error';
     }
   }
 
-  // 2. ĐĂNG NHẬP
-  Future<String?> login({
+  Future<String> login({
     required String email,
     required String password,
   }) async {
     try {
-      await _auth.signInWithEmailAndPassword(email: email, password: password);
-      return "success";
-    } catch (e) {
-      return e.toString();
+      await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+      return 'success';
+    } on FirebaseAuthException catch (error) {
+      return _authMessage(error);
+    } catch (_) {
+      return 'Không thể đăng nhập. Vui lòng thử lại.';
     }
   }
 
-  // 3. ĐĂNG XUẤT (Thêm mới theo yêu cầu của bạn)
-  Future<void> signOut() async {
-    try {
-      await _auth.signOut();
-    } catch (e) {
-      print("Lỗi khi đăng xuất: $e");
-    }
+  Future<void> signOut() => _auth.signOut();
+
+  Stream<UserModel?> watchUser(String uid) {
+    return _firestore.collection('users').doc(uid).snapshots().map((snapshot) {
+      final data = snapshot.data();
+      return data == null ? null : UserModel.fromMap(data);
+    });
   }
 
-  // 4. NÂNG CẤP TÀI KHOẢN LÊN PROVIDER (Chủ khách sạn)
-  // Hàm này sẽ được gọi sau khi khách hàng hoàn tất thủ tục cung cấp thông tin kinh doanh
-  Future<String?> updateRoleToProvider() async {
-    try {
-      String? uid = _auth.currentUser?.uid;
-      if (uid != null) {
-        await _firestore.collection('users').doc(uid).update({
-          'role': 'provider',
-        });
-        return "success";
-      }
-      return "User not logged in";
-    } catch (e) {
-      return e.toString();
-    }
-  }
-
-  // 5. LẤY THÔNG TIN USER CHI TIẾT (Để kiểm tra Role khi điều hướng)
   Future<UserModel?> getUserDetails() async {
-    try {
-      User? currentUser = _auth.currentUser;
-      if (currentUser != null) {
-        DocumentSnapshot snap =
-        await _firestore.collection('users').doc(currentUser.uid).get();
-        if (snap.exists) {
-          return UserModel.fromMap(snap.data() as Map<String, dynamic>);
-        }
-      }
-    } catch (e) {
-      print("Lỗi lấy dữ liệu người dùng: $e");
-    }
-    return null;
+    final user = _auth.currentUser;
+    if (user == null) return null;
+
+    final snapshot = await _firestore.collection('users').doc(user.uid).get();
+    final data = snapshot.data();
+
+    return data == null ? null : UserModel.fromMap(data);
+  }
+
+  String _authMessage(FirebaseAuthException error) {
+    return switch (error.code) {
+      'invalid-email' => 'Email không hợp lệ.',
+      'email-already-in-use' => 'Email đã được sử dụng.',
+      'weak-password' => 'Mật khẩu phải có ít nhất 6 ký tự.',
+      'user-not-found' ||
+      'wrong-password' ||
+      'invalid-credential' => 'Email hoặc mật khẩu không chính xác.',
+      'user-disabled' => 'Tài khoản đã bị khóa.',
+      'too-many-requests' => 'Bạn thao tác quá nhiều lần. Hãy thử lại sau.',
+      _ => error.message ?? 'Đã xảy ra lỗi xác thực.',
+    };
   }
 }

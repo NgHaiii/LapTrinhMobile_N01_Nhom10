@@ -1,14 +1,14 @@
 class RoomModel {
-  final String id;           // ID của phòng (Document ID trên Firestore)
-  final String hotelId;     // ID của khách sạn mà phòng này thuộc về
-  final String providerId;  // ID của chủ khách sạn (Dùng để phân quyền quản lý)
-  final String roomNumber;  // Số phòng (Ví dụ: 101, A-202)
-  final String type;        // Loại phòng (Single, Double, Suite, Deluxe...)
-  final double price;       // Giá thuê theo đêm
-  final bool isAvailable;   // Trạng thái phòng (Trống hay đã có người đặt)
-  final List<String> images;// Danh sách hình ảnh của phòng
+  final String id; // ID của phòng (Document ID trên Firestore)
+  final String hotelId; // ID của khách sạn mà phòng này thuộc về
+  final String providerId; // ID của chủ khách sạn (Dùng để phân quyền quản lý)
+  final String roomNumber; // Số phòng (Ví dụ: 101, A-202)
+  final String type; // Loại phòng (Single, Double, Suite, Deluxe...)
+  final double price; // Giá thuê theo đêm
+  final bool isAvailable; // Trạng thái phòng (Trống hay đã có người đặt)
+  final List<String> images; // Danh sách hình ảnh của phòng
   final String description; // Mô tả chi tiết (Diện tích, tiện nghi...)
-  final int maxGuests;      // Số lượng khách tối đa
+  final int maxGuests; // Số lượng khách tối đa
 
   RoomModel({
     required this.id,

@@ -17,12 +17,13 @@ dependencies:
   firebase_core: ^3.6.0         # Thư viện lõi kết nối Firebase
   firebase_auth: ^5.3.1         # Chức năng Đăng nhập / Đăng ký
   cloud_firestore: ^5.4.4       # Cơ sở dữ liệu lưu Tour, Địa điểm, Bài viết
-  firebase_storage: ^12.3.2     # Lưu trữ hình ảnh các chuyến đi
 
   # --- Thư viện bổ trợ nên có cho App Du Lịch ---
   google_fonts: ^6.2.1          # Sử dụng font chữ hiện đại (Roboto, Montserrat...)
   cached_network_image: ^3.4.1  # Load ảnh từ internet nhanh, mượt, không bị giật
   provider: ^6.1.2              # Quản lý trạng thái ứng dụng (State Management)
+  image_picker: ^1.2.2
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

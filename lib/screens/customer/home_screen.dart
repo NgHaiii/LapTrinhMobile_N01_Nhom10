@@ -1,12 +1,18 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../model/hotel.dart';
 import '../../services/auth.dart';
+import '../../services/customer_service.dart';
+import 'hotel_details_screen.dart';
+import 'my_bookings_screen.dart';
 import 'provider_application_screen.dart';
+import 'widgets/customer_empty_state.dart';
+import 'widgets/hotel_card.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
-  const CustomerHomeScreen({super.key});
+  const CustomerHomeScreen({super.key, this.service});
+
+  final CustomerService? service;
 
   @override
   State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
@@ -15,44 +21,62 @@ class CustomerHomeScreen extends StatefulWidget {
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   final _searchController = TextEditingController();
 
+  late final CustomerService _service;
+  late final Stream<List<HotelModel>> _hotelsStream;
+
   String _searchText = '';
-  String _selectedCategory = 'Tất cả';
+  String _category = 'Tất cả';
+  String? _province;
+  String? _district;
+
   DateTimeRange? _dateRange;
   int _guests = 2;
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> get _hotelStream {
-    return FirebaseFirestore.instance
-        .collection('hotels')
-        .where('status', isEqualTo: 'approved')
-        .snapshots();
+  static const _categories = [
+    'Tất cả',
+    'Khách sạn',
+    'Căn hộ',
+    'Biệt thự',
+    'Homestay',
+    'Resort',
+    'Nhà nghỉ',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _service = widget.service ?? CustomerService();
+    _hotelsStream = _service.watchHotels();
   }
 
   Future<void> _selectDate() async {
     final now = DateTime.now();
+    final firstDate = DateTime(now.year, now.month, now.day);
 
     final result = await showDateRangePicker(
       context: context,
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: now.add(const Duration(days: 730)),
+      firstDate: firstDate,
+      lastDate: firstDate.add(const Duration(days: 730)),
       initialDateRange: _dateRange,
       helpText: 'Chọn thời gian lưu trú',
+      cancelText: 'Hủy',
       saveText: 'Xác nhận',
     );
 
-    if (result != null && mounted) {
-      setState(() => _dateRange = result);
-    }
+    if (!mounted || result == null) return;
+
+    setState(() => _dateRange = result);
   }
 
   Future<void> _selectGuests() async {
-    var value = _guests;
+    var guests = _guests;
 
     final result = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
-      builder: (context) {
+      builder: (sheetContext) {
         return StatefulBuilder(
-          builder: (context, setModalState) {
+          builder: (context, setSheetState) {
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
@@ -62,39 +86,52 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     Text(
                       'Số lượng khách',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
+                            fontWeight: FontWeight.w900,
+                          ),
                     ),
                     const SizedBox(height: 22),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         IconButton.filledTonal(
-                          onPressed: value > 1
-                              ? () => setModalState(() => value--)
+                          onPressed: guests > 1
+                              ? () {
+                                  setSheetState(() {
+                                    guests--;
+                                  });
+                                }
                               : null,
                           icon: const Icon(Icons.remove),
                         ),
                         SizedBox(
-                          width: 100,
+                          width: 110,
                           child: Text(
-                            '$value khách',
+                            '$guests khách',
                             textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                         ),
                         IconButton.filled(
-                          onPressed: value < 20
-                              ? () => setModalState(() => value++)
+                          onPressed: guests < 30
+                              ? () {
+                                  setSheetState(() {
+                                    guests++;
+                                  });
+                                }
                               : null,
                           icon: const Icon(Icons.add),
                         ),
                       ],
                     ),
                     const SizedBox(height: 22),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(context, value),
-                      child: const Text('Xác nhận'),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () {
+                          Navigator.pop(sheetContext, guests);
+                        },
+                        child: const Text('Xác nhận'),
+                      ),
                     ),
                   ],
                 ),
@@ -105,9 +142,180 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       },
     );
 
-    if (result != null && mounted) {
-      setState(() => _guests = result);
+    if (!mounted || result == null) return;
+    setState(() => _guests = result);
+  }
+
+  Future<void> _selectLocation(List<HotelModel> hotels) async {
+    final locationMap = <String, Set<String>>{};
+
+    for (final hotel in hotels) {
+      final province = hotel.province.trim();
+      final district = hotel.district.trim();
+
+      if (province.isEmpty) continue;
+
+      locationMap.putIfAbsent(province, () => <String>{});
+
+      if (district.isNotEmpty) {
+        locationMap[province]!.add(district);
+      }
     }
+
+    final provinces = locationMap.keys.toList()..sort();
+
+    if (provinces.isEmpty) {
+      _showMessage('Các khách sạn chưa cập nhật tỉnh/thành phố.');
+      return;
+    }
+
+    var province = _province;
+    var district = _district;
+
+    final result = await showModalBottomSheet<_LocationResult>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final districts =
+                province == null ? <String>[] : (locationMap[province]?.toList() ?? [])
+                  ..sort();
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Tìm theo khu vực',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 20),
+                    DropdownButtonFormField<String>(
+                      initialValue: provinces.contains(province) ? province : null,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Tỉnh/Thành phố',
+                        prefixIcon: Icon(Icons.location_city_outlined),
+                      ),
+                      items: provinces.map((value) {
+                        return DropdownMenuItem(
+                          value: value,
+                          child: Text(value),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setSheetState(() {
+                          province = value;
+                          district = null;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(province),
+                      initialValue: districts.contains(district) ? district : null,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Quận/Huyện',
+                        prefixIcon: Icon(Icons.map_outlined),
+                      ),
+                      items: districts.map((value) {
+                        return DropdownMenuItem(
+                          value: value,
+                          child: Text(value),
+                        );
+                      }).toList(),
+                      onChanged: province == null
+                          ? null
+                          : (value) {
+                              setSheetState(() {
+                                district = value;
+                              });
+                            },
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              Navigator.pop(sheetContext, const _LocationResult());
+                            },
+                            child: const Text('Xóa bộ lọc'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: province == null
+                                ? null
+                                : () {
+                                    Navigator.pop(
+                                      sheetContext,
+                                      _LocationResult(
+                                        province: province,
+                                        district: district,
+                                      ),
+                                    );
+                                  },
+                            child: const Text('Áp dụng'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted || result == null) return;
+
+    setState(() {
+      _province = result.province;
+      _district = result.district;
+    });
+  }
+
+  void _clearFilters() {
+    _searchController.clear();
+
+    setState(() {
+      _searchText = '';
+      _category = 'Tất cả';
+      _province = null;
+      _district = null;
+    });
+  }
+
+  void _openHotel(HotelModel hotel) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => HotelDetailsScreen(
+          service: _service,
+          hotel: hotel,
+          initialDateRange: _dateRange,
+          initialGuests: _guests,
+        ),
+      ),
+    );
+  }
+
+  void _openBookings() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MyBookingsScreen(service: _service),
+      ),
+    );
   }
 
   void _openProviderApplication() {
@@ -121,17 +329,21 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   Future<void> _logout() async {
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Đăng xuất?'),
           content: const Text('Bạn có chắc chắn muốn đăng xuất không?'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
               child: const Text('Hủy'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
               child: const Text('Đăng xuất'),
             ),
           ],
@@ -144,332 +356,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     }
   }
 
-  void _showMyBookings() {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+  void _showMessage(String message) {
+    if (!mounted) return;
 
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.75,
-          minChildSize: 0.45,
-          maxChildSize: 0.95,
-          builder: (context, controller) {
-            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('bookings')
-                  .where('customerId', isEqualTo: uid)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final bookings = snapshot.data?.docs.toList() ?? [];
-
-                bookings.sort((first, second) {
-                  final firstDate = first.data()['createdAt'] as Timestamp?;
-                  final secondDate = second.data()['createdAt'] as Timestamp?;
-
-                  return (secondDate?.millisecondsSinceEpoch ?? 0).compareTo(
-                    firstDate?.millisecondsSinceEpoch ?? 0,
-                  );
-                });
-
-                return CustomScrollView(
-                  controller: controller,
-                  slivers: [
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                      sliver: SliverToBoxAdapter(
-                        child: Text(
-                          'Đơn đặt phòng của tôi',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                    ),
-                    if (bookings.isEmpty)
-                      const SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: _EmptyState(
-                          icon: Icons.event_busy_outlined,
-                          title: 'Chưa có đơn đặt phòng',
-                          message:
-                              'Các đơn đặt phòng của bạn sẽ xuất hiện tại đây.',
-                        ),
-                      )
-                    else
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
-                        sliver: SliverList.separated(
-                          itemCount: bookings.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (context, index) {
-                            final document = bookings[index];
-                            final booking = document.data();
-
-                            return _BookingCard(
-                              booking: booking,
-                              onCancel: booking['status'] == 'pending'
-                                  ? () async {
-                                      await document.reference.update({
-                                        'status': 'cancelled',
-                                        'updatedAt':
-                                            FieldValue.serverTimestamp(),
-                                      });
-                                    }
-                                  : null,
-                            );
-                          },
-                        ),
-                      ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showHotelDetails(_HotelData hotel) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.88,
-          minChildSize: 0.6,
-          maxChildSize: 0.96,
-          builder: (context, controller) {
-            return ListView(
-              controller: controller,
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: _NetworkImage(url: hotel.imageUrl),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        hotel.name,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                    const Icon(Icons.star_rounded, color: Color(0xFFF4A261)),
-                    Text(
-                      hotel.rating.toStringAsFixed(1),
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(Icons.location_on_outlined, size: 19),
-                    const SizedBox(width: 5),
-                    Expanded(child: Text(hotel.address)),
-                  ],
-                ),
-                if (hotel.description.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Text(hotel.description),
-                ],
-                const SizedBox(height: 24),
-                Text(
-                  'Phòng đang mở bán',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 12),
-                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('rooms')
-                      .where('hotelId', isEqualTo: hotel.id)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    }
-
-                    final rooms =
-                        snapshot.data?.docs.where((document) {
-                          final data = document.data();
-                          return data['isAvailable'] != false &&
-                              ((data['maxGuests'] as num?)?.toInt() ?? 2) >=
-                                  _guests;
-                        }).toList() ??
-                        [];
-
-                    if (rooms.isEmpty) {
-                      return const _EmptyState(
-                        icon: Icons.bed_outlined,
-                        title: 'Không có phòng phù hợp',
-                        message:
-                            'Hãy thay đổi số lượng khách hoặc thử lại sau.',
-                      );
-                    }
-
-                    return Column(
-                      children: rooms.map((document) {
-                        return _RoomCard(
-                          data: document.data(),
-                          onBook: () => _bookRoom(
-                            hotel: hotel,
-                            roomId: document.id,
-                            room: document.data(),
-                          ),
-                        );
-                      }).toList(),
-                    );
-                  },
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _bookRoom({
-    required _HotelData hotel,
-    required String roomId,
-    required Map<String, dynamic> room,
-  }) async {
-    if (_dateRange == null) {
-      Navigator.pop(context);
-      await _selectDate();
-
-      if (_dateRange == null) return;
-      _showHotelDetails(hotel);
-      return;
-    }
-
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-
-    final price = (room['price'] as num?)?.toDouble() ?? 0;
-    final nights = _dateRange!.duration.inDays;
-    final total = price * nights;
-
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Xác nhận đặt phòng'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(hotel.name),
-              const SizedBox(height: 6),
-              Text('Phòng: ${room['roomNumber'] ?? room['type'] ?? ''}'),
-              Text('$nights đêm · $_guests khách'),
-              const SizedBox(height: 10),
-              Text(
-                'Tổng tiền: ${_formatMoney(total)}',
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Hủy'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Đặt phòng'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (accepted != true) return;
-
-    try {
-      final existingBookings = await FirebaseFirestore.instance
-          .collection('bookings')
-          .where('roomId', isEqualTo: roomId)
-          .get();
-
-      final conflicted = existingBookings.docs.any((document) {
-        final data = document.data();
-        final status = data['status'];
-
-        if (status == 'cancelled' || status == 'rejected') return false;
-
-        final checkIn = (data['checkIn'] as Timestamp?)?.toDate();
-        final checkOut = (data['checkOut'] as Timestamp?)?.toDate();
-
-        if (checkIn == null || checkOut == null) return false;
-
-        return _dateRange!.start.isBefore(checkOut) &&
-            _dateRange!.end.isAfter(checkIn);
-      });
-
-      if (conflicted) {
-        throw StateError('Phòng đã được đặt trong thời gian này.');
-      }
-
-      await FirebaseFirestore.instance.collection('bookings').add({
-        'customerId': uid,
-        'providerId': hotel.providerId,
-        'hotelId': hotel.id,
-        'hotelName': hotel.name,
-        'roomId': roomId,
-        'roomNumber': room['roomNumber'] ?? '',
-        'roomType': room['type'] ?? '',
-        'checkIn': Timestamp.fromDate(_dateRange!.start),
-        'checkOut': Timestamp.fromDate(_dateRange!.end),
-        'guests': _guests,
-        'pricePerNight': price,
-        'totalAmount': total,
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      if (!mounted) return;
-      Navigator.pop(context);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Đặt phòng thành công, đang chờ xác nhận.'),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString().replaceFirst('Bad state: ', '')),
-        ),
-      );
-    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -505,20 +397,19 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         actions: [
           IconButton(
             tooltip: 'Đơn đặt phòng',
-            onPressed: _showMyBookings,
-            icon: const Icon(Icons.notifications_none_rounded),
+            onPressed: _openBookings,
+            icon: const Icon(Icons.event_note_outlined),
           ),
           PopupMenuButton<String>(
             tooltip: 'Tài khoản',
             icon: const CircleAvatar(child: Icon(Icons.person_outline_rounded)),
             onSelected: (value) {
-              switch (value) {
-                case 'bookings':
-                  _showMyBookings();
-                case 'provider':
-                  _openProviderApplication();
-                case 'logout':
-                  _logout();
+              if (value == 'bookings') {
+                _openBookings();
+              } else if (value == 'provider') {
+                _openProviderApplication();
+              } else if (value == 'logout') {
+                _logout();
               }
             },
             itemBuilder: (_) => const [
@@ -551,45 +442,84 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: _hotelStream,
+      body: StreamBuilder<List<HotelModel>>(
+        stream: _hotelsStream,
         builder: (context, snapshot) {
-          final hotels =
-              snapshot.data?.docs.map(_HotelData.fromDocument).where((hotel) {
-                final search = _searchText.toLowerCase();
-                final matchesSearch =
-                    hotel.name.toLowerCase().contains(search) ||
-                    hotel.address.toLowerCase().contains(search);
+          if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 14),
+                  Text('Đang tải danh sách nơi lưu trú...'),
+                ],
+              ),
+            );
+          }
 
-                final matchesCategory =
-                    _selectedCategory == 'Tất cả' ||
-                    hotel.category == _selectedCategory;
+          if (snapshot.hasError) {
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+              children: [
+                CustomerEmptyState(
+                  icon: Icons.cloud_off_outlined,
+                  title: 'Không thể tải khách sạn',
+                  message: _cleanError(snapshot.error),
+                  actionLabel: 'Thử lại',
+                  onAction: () => setState(() {}),
+                ),
+              ],
+            );
+          }
 
-                return matchesSearch && matchesCategory;
-              }).toList() ??
-              [];
+          final allHotels = snapshot.data ?? [];
+          final keyword = _normalize(_searchText);
+
+          final hotels = allHotels.where((hotel) {
+            final searchableText = _normalize(
+              '${hotel.name} '
+              '${hotel.address} '
+              '${hotel.district} '
+              '${hotel.province} '
+              '${hotel.category}',
+            );
+
+            final matchesSearch = keyword.isEmpty || searchableText.contains(keyword);
+
+            final matchesCategory =
+                _category == 'Tất cả' || _normalize(hotel.category) == _normalize(_category);
+
+            final matchesProvince =
+                _province == null || _normalize(hotel.province) == _normalize(_province!);
+
+            final matchesDistrict =
+                _district == null || _normalize(hotel.district) == _normalize(_district!);
+
+            return matchesSearch && matchesCategory && matchesProvince && matchesDistrict;
+          }).toList();
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
             children: [
               Text(
                 'Bạn muốn đi đâu?',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
+                      fontWeight: FontWeight.w900,
+                    ),
               ),
               const SizedBox(height: 6),
               Text(
-                'Tìm nơi lưu trú phù hợp cho chuyến đi tiếp theo.',
+                'Tìm nơi lưu trú phù hợp cho chuyến đi.',
                 style: TextStyle(color: colors.onSurfaceVariant),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
               SearchBar(
                 controller: _searchController,
-                hintText: 'Tìm thành phố, khách sạn...',
+                hintText: 'Tìm khách sạn hoặc địa điểm...',
                 leading: const Icon(Icons.search_rounded),
                 onChanged: (value) {
-                  setState(() => _searchText = value.trim());
+                  setState(() => _searchText = value);
                 },
                 trailing: [
                   if (_searchText.isNotEmpty)
@@ -603,23 +533,36 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
+              _FilterTile(
+                icon: Icons.location_on_outlined,
+                title: 'Khu vực',
+                value: _province == null
+                    ? 'Chọn tỉnh/thành phố'
+                    : _district == null
+                        ? _province!
+                        : '$_district, $_province',
+                onTap: () {
+                  _selectLocation(allHotels);
+                },
+              ),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
-                    child: _QuickFilter(
+                    child: _FilterTile(
                       icon: Icons.calendar_today_outlined,
                       title: 'Thời gian',
                       value: _dateRange == null
                           ? 'Chọn ngày'
-                          : '${_formatDate(_dateRange!.start)} - '
-                                '${_formatDate(_dateRange!.end)}',
+                          : '${_formatShortDate(_dateRange!.start)} - '
+                              '${_formatShortDate(_dateRange!.end)}',
                       onTap: _selectDate,
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: _QuickFilter(
+                    child: _FilterTile(
                       icon: Icons.group_outlined,
                       title: 'Khách',
                       value: '$_guests người',
@@ -628,83 +571,62 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 26),
-              Text(
-                'Loại hình lưu trú',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children:
-                      [
-                        'Tất cả',
-                        'Khách sạn',
-                        'Căn hộ',
-                        'Biệt thự',
-                        'Homestay',
-                      ].map((category) {
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(category),
-                            selected: _selectedCategory == category,
-                            onSelected: (_) {
-                              setState(() => _selectedCategory = category);
-                            },
-                          ),
-                        );
-                      }).toList(),
+                  children: _categories.map((category) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(category),
+                        selected: _category == category,
+                        onSelected: (_) {
+                          setState(() {
+                            _category = category;
+                          });
+                        },
+                      ),
+                    );
+                  }).toList(),
                 ),
               ),
-              const SizedBox(height: 26),
+              const SizedBox(height: 22),
               Row(
                 children: [
                   Expanded(
                     child: Text(
-                      'Nơi lưu trú nổi bật',
+                      'Nơi lưu trú',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
+                            fontWeight: FontWeight.w900,
+                          ),
                     ),
                   ),
                   Text('${hotels.length} kết quả'),
                 ],
               ),
               const SizedBox(height: 12),
-              if (snapshot.connectionState == ConnectionState.waiting)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32),
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-              else if (snapshot.hasError)
-                _EmptyState(
-                  icon: Icons.cloud_off_outlined,
-                  title: 'Không thể tải dữ liệu',
-                  message: snapshot.error.toString(),
-                )
-              else if (hotels.isEmpty)
-                const _EmptyState(
+              if (hotels.isEmpty)
+                CustomerEmptyState(
                   icon: Icons.search_off_rounded,
                   title: 'Không tìm thấy nơi lưu trú',
-                  message: 'Hãy thử thay đổi từ khóa hoặc loại hình.',
+                  message: allHotels.isEmpty
+                      ? 'Chưa có khách sạn được hiển thị.'
+                      : 'Hãy thay đổi hoặc xóa bộ lọc.',
+                  actionLabel: allHotels.isEmpty ? null : 'Xóa bộ lọc',
+                  onAction: allHotels.isEmpty ? null : _clearFilters,
                 )
               else
                 ...hotels.map(
                   (hotel) => Padding(
                     padding: const EdgeInsets.only(bottom: 14),
-                    child: _HotelCard(
+                    child: CustomerHotelCard(
                       hotel: hotel,
-                      onTap: () => _showHotelDetails(hotel),
+                      onTap: () => _openHotel(hotel),
                     ),
                   ),
                 ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               Material(
                 color: colors.secondaryContainer,
                 borderRadius: BorderRadius.circular(8),
@@ -713,7 +635,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   contentPadding: const EdgeInsets.all(16),
                   leading: Icon(
                     Icons.storefront_rounded,
-                    size: 38,
+                    size: 36,
                     color: colors.onSecondaryContainer,
                   ),
                   title: const Text(
@@ -732,215 +654,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 }
 
-class _HotelData {
-  const _HotelData({
-    required this.id,
-    required this.providerId,
-    required this.name,
-    required this.address,
-    required this.description,
-    required this.imageUrl,
-    required this.category,
-    required this.rating,
-    required this.minPrice,
-  });
-
-  final String id;
-  final String providerId;
-  final String name;
-  final String address;
-  final String description;
-  final String imageUrl;
-  final String category;
-  final double rating;
-  final double minPrice;
-
-  factory _HotelData.fromDocument(
-    QueryDocumentSnapshot<Map<String, dynamic>> document,
-  ) {
-    final data = document.data();
-
-    return _HotelData(
-      id: document.id,
-      providerId: data['providerId'] as String? ?? '',
-      name: data['name'] as String? ?? 'Khách sạn',
-      address: data['address'] as String? ?? '',
-      description: data['description'] as String? ?? '',
-      imageUrl: data['imageUrl'] as String? ?? '',
-      category: data['category'] as String? ?? 'Khách sạn',
-      rating: (data['rating'] as num?)?.toDouble() ?? 0,
-      minPrice: (data['minPrice'] as num?)?.toDouble() ?? 0,
-    );
-  }
-}
-
-class _HotelCard extends StatelessWidget {
-  const _HotelCard({required this.hotel, required this.onTap});
-
-  final _HotelData hotel;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: _NetworkImage(url: hotel.imageUrl),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          hotel.name,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      const Icon(
-                        Icons.star_rounded,
-                        color: Color(0xFFF4A261),
-                        size: 19,
-                      ),
-                      Text(hotel.rating.toStringAsFixed(1)),
-                    ],
-                  ),
-                  const SizedBox(height: 7),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.location_on_outlined,
-                        size: 18,
-                        color: colors.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          hotel.address,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (hotel.minPrice > 0)
-                        Text(
-                          'Từ ${_formatMoney(hotel.minPrice)}',
-                          style: TextStyle(
-                            color: colors.primary,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RoomCard extends StatelessWidget {
-  const _RoomCard({required this.data, required this.onBook});
-
-  final Map<String, dynamic> data;
-  final VoidCallback onBook;
-
-  @override
-  Widget build(BuildContext context) {
-    final price = (data['price'] as num?)?.toDouble() ?? 0;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            const Icon(Icons.bed_rounded, size: 34),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${data['type'] ?? 'Phòng'} - '
-                    '${data['roomNumber'] ?? ''}',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${data['maxGuests'] ?? 2} khách · '
-                    '${_formatMoney(price)}/đêm',
-                  ),
-                ],
-              ),
-            ),
-            FilledButton(onPressed: onBook, child: const Text('Đặt')),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BookingCard extends StatelessWidget {
-  const _BookingCard({required this.booking, this.onCancel});
-
-  final Map<String, dynamic> booking;
-  final VoidCallback? onCancel;
-
-  @override
-  Widget build(BuildContext context) {
-    final status = booking['status'] as String? ?? 'pending';
-    final statusText = switch (status) {
-      'confirmed' => 'Đã xác nhận',
-      'completed' => 'Hoàn thành',
-      'cancelled' => 'Đã hủy',
-      'rejected' => 'Bị từ chối',
-      _ => 'Chờ xác nhận',
-    };
-
-    return Card(
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(14),
-        leading: const Icon(Icons.hotel_outlined),
-        title: Text(
-          booking['hotelName'] as String? ?? 'Khách sạn',
-          style: const TextStyle(fontWeight: FontWeight.w900),
-        ),
-        subtitle: Text(
-          '${booking['roomType'] ?? ''} · $statusText\n'
-          '${_formatMoney((booking['totalAmount'] as num?)?.toDouble() ?? 0)}',
-        ),
-        isThreeLine: true,
-        trailing: onCancel == null
-            ? null
-            : IconButton(
-                tooltip: 'Hủy đơn',
-                onPressed: onCancel,
-                icon: const Icon(Icons.cancel_outlined),
-              ),
-      ),
-    );
-  }
-}
-
-class _QuickFilter extends StatelessWidget {
-  const _QuickFilter({
+class _FilterTile extends StatelessWidget {
+  const _FilterTile({
     required this.icon,
     required this.title,
     required this.value,
@@ -954,7 +669,9 @@ class _QuickFilter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
@@ -962,7 +679,7 @@ class _QuickFilter extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              Icon(icon, size: 20),
+              Icon(icon, size: 21),
               const SizedBox(width: 9),
               Expanded(
                 child: Column(
@@ -971,6 +688,7 @@ class _QuickFilter extends StatelessWidget {
                     Text(title, style: const TextStyle(fontSize: 11)),
                     Text(
                       value,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
@@ -985,92 +703,47 @@ class _QuickFilter extends StatelessWidget {
   }
 }
 
-class _NetworkImage extends StatelessWidget {
-  const _NetworkImage({required this.url});
+class _LocationResult {
+  const _LocationResult({this.province, this.district});
 
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    if (url.isEmpty) {
-      return ColoredBox(
-        color: colors.primaryContainer,
-        child: Icon(
-          Icons.hotel_rounded,
-          size: 56,
-          color: colors.onPrimaryContainer,
-        ),
-      );
-    }
-
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      loadingBuilder: (context, child, progress) {
-        return progress == null
-            ? child
-            : const Center(child: CircularProgressIndicator());
-      },
-      errorBuilder: (_, __, ___) {
-        return ColoredBox(
-          color: colors.primaryContainer,
-          child: Icon(
-            Icons.broken_image_outlined,
-            size: 48,
-            color: colors.onPrimaryContainer,
-          ),
-        );
-      },
-    );
-  }
+  final String? province;
+  final String? district;
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        children: [
-          Icon(icon, size: 52),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 5),
-          Text(message, textAlign: TextAlign.center),
-        ],
-      ),
-    );
-  }
-}
-
-String _formatDate(DateTime date) {
+String _formatShortDate(DateTime date) {
   return '${date.day.toString().padLeft(2, '0')}/'
       '${date.month.toString().padLeft(2, '0')}';
 }
 
-String _formatMoney(double value) {
-  final raw = value.toStringAsFixed(0);
+String _normalize(String value) {
+  const source =
+      'àáạảãâầấậẩẫăằắặẳẵ'
+      'èéẹẻẽêềếệểễ'
+      'ìíịỉĩ'
+      'òóọỏõôồốộổỗơờớợởỡ'
+      'ùúụủũưừứựửữ'
+      'ỳýỵỷỹđ';
 
-  final formatted = raw.replaceAllMapped(
-    RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
-    (match) => '${match[1]}.',
-  );
+  const target =
+      'aaaaaaaaaaaaaaaaa'
+      'eeeeeeeeeee'
+      'iiiii'
+      'ooooooooooooooooo'
+      'uuuuuuuuuuu'
+      'yyyyyd';
 
-  return '$formatted đ';
+  var result = value.trim().toLowerCase();
+
+  for (var index = 0; index < source.length; index++) {
+    result = result.replaceAll(source[index], target[index]);
+  }
+
+  return result;
+}
+
+String _cleanError(Object? error) {
+  return error
+      .toString()
+      .replaceFirst('Bad state: ', '')
+      .replaceFirst('Exception: ', '');
 }

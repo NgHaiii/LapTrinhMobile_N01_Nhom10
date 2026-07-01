@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import '../../services/auth.dart';
 import '../../services/provider_service.dart';
 import 'bookings_page.dart';
+import 'commission_page.dart';
 import 'hotels_page.dart';
 import 'overview_page.dart';
+import 'payment_settings_page.dart';
 import 'rooms_page.dart';
 
 class ProviderDashboard extends StatefulWidget {
@@ -35,7 +37,6 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
   void initState() {
     super.initState();
 
-    // Chỉ khởi tạo stream và các trang một lần để giữ state ổn định.
     _bookingStream = _service.watchBookings();
 
     _pages = [
@@ -62,11 +63,24 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
   }
 
   void _selectPage(int index) {
-    if (index < 0 || index >= _pages.length || index == _selectedIndex) {
-      return;
-    }
-
+    if (index < 0 || index >= _pages.length) return;
     setState(() => _selectedIndex = index);
+  }
+
+  void _openPaymentSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const ProviderPaymentSettingsPage(),
+      ),
+    );
+  }
+
+  void _openCommissions() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const ProviderCommissionPage(),
+      ),
+    );
   }
 
   Future<void> _logout() async {
@@ -74,8 +88,9 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
+          icon: const Icon(Icons.logout_rounded),
           title: const Text('Đăng xuất?'),
-          content: const Text('Bạn có chắc chắn muốn kết thúc phiên làm việc?'),
+          content: const Text('Bạn có chắc muốn kết thúc phiên làm việc?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
@@ -91,18 +106,13 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
       },
     );
 
-    if (accepted == true) {
-      await AuthService().signOut();
-    }
+    if (accepted == true) await AuthService().signOut();
   }
 
   void _showProviderProfile() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
-    if (uid == null) {
-      _showMessage('Không tìm thấy tài khoản đang đăng nhập.');
-      return;
-    }
+    if (uid == null) return;
 
     showModalBottomSheet<void>(
       context: context,
@@ -115,22 +125,18 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
               .doc(uid)
               .snapshots(),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (!snapshot.hasData) {
               return const SizedBox(
                 height: 280,
                 child: Center(child: CircularProgressIndicator()),
               );
             }
 
-            if (snapshot.hasError) {
-              return _ProfileError(message: snapshot.error.toString());
-            }
-
             final provider = snapshot.data?.data();
 
             if (provider == null) {
               return const _ProfileError(
-                message: 'Không tìm thấy hồ sơ nhà cung cấp trong Firestore.',
+                message: 'Không tìm thấy hồ sơ nhà cung cấp.',
               );
             }
 
@@ -141,52 +147,27 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 30,
-                          child: Text(
-                            _firstCharacter(businessName),
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
+                    CircleAvatar(
+                      radius: 32,
+                      child: Text(
+                        businessName.isEmpty
+                            ? 'ĐT'
+                            : businessName.substring(0, 1).toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
                         ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                businessName,
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(fontWeight: FontWeight.w900),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.verified_rounded,
-                                    size: 18,
-                                    color: Colors.green,
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    provider['status'] == 'active'
-                                        ? 'Đối tác đang hoạt động'
-                                        : 'Đối tác đã xác minh',
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 10),
+                    Text(
+                      businessName,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
                     _ProfileRow(
                       icon: Icons.person_outline,
                       label: 'Người đại diện',
@@ -207,14 +188,6 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
                       label: 'Mã đối tác',
                       value: uid,
                     ),
-                    const SizedBox(height: 18),
-                    FilledButton.icon(
-                      onPressed: () {
-                        Navigator.of(sheetContext).pop();
-                      },
-                      icon: const Icon(Icons.check_rounded),
-                      label: const Text('Đóng'),
-                    ),
                   ],
                 ),
               ),
@@ -223,22 +196,6 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
         );
       },
     );
-  }
-
-  void _showMessage(String message) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  String _firstCharacter(String? text) {
-    final value = text?.trim() ?? '';
-
-    if (value.isEmpty) return 'ĐT';
-
-    return value.characters.first.toUpperCase();
   }
 
   @override
@@ -254,20 +211,22 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: _bookingStream,
                 builder: (context, snapshot) {
-                  final pendingCount =
+                  final count =
                       snapshot.data?.docs.where((document) {
-                        return document.data()['status'] == 'pending';
+                        final status = document.data()['status'];
+
+                        return status == 'pending' ||
+                            status == 'pending_provider' ||
+                            status == 'payment_review';
                       }).length ??
                       0;
 
                   return IconButton(
-                    tooltip: pendingCount > 0
-                        ? '$pendingCount đơn đang chờ xử lý'
-                        : 'Không có đơn mới',
+                    tooltip: '$count đơn cần xử lý',
                     onPressed: () => _selectPage(3),
                     icon: Badge(
-                      isLabelVisible: pendingCount > 0,
-                      label: Text(pendingCount > 9 ? '9+' : '$pendingCount'),
+                      isLabelVisible: count > 0,
+                      label: Text(count > 9 ? '9+' : '$count'),
                       child: const Icon(Icons.notifications_none_rounded),
                     ),
                   );
@@ -279,12 +238,10 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
                   child: Icon(Icons.storefront_outlined),
                 ),
                 onSelected: (value) {
-                  switch (value) {
-                    case 'profile':
-                      _showProviderProfile();
-                    case 'logout':
-                      _logout();
-                  }
+                  if (value == 'profile') _showProviderProfile();
+                  if (value == 'payment') _openPaymentSettings();
+                  if (value == 'commission') _openCommissions();
+                  if (value == 'logout') _logout();
                 },
                 itemBuilder: (_) => const [
                   PopupMenuItem(
@@ -293,6 +250,22 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.storefront_outlined),
                       title: Text('Hồ sơ đối tác'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'payment',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.account_balance_outlined),
+                      title: Text('Tài khoản nhận tiền'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'commission',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.percent_rounded),
+                      title: Text('Hoa hồng ứng dụng'),
                     ),
                   ),
                   PopupMenuItem(
@@ -315,22 +288,6 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
                   selectedIndex: _selectedIndex,
                   onDestinationSelected: _selectPage,
                   labelType: NavigationRailLabelType.all,
-                  groupAlignment: -0.8,
-                  leading: Padding(
-                    padding: const EdgeInsets.only(bottom: 24),
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.business_center_rounded,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                    ),
-                  ),
                   destinations: const [
                     NavigationRailDestination(
                       icon: Icon(Icons.dashboard_outlined),
@@ -357,7 +314,10 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
                 const VerticalDivider(width: 1),
               ],
               Expanded(
-                child: IndexedStack(index: _selectedIndex, children: _pages),
+                child: IndexedStack(
+                  index: _selectedIndex,
+                  children: _pages,
+                ),
               ),
             ],
           ),
@@ -408,13 +368,10 @@ class _ProfileRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
-        title: Text(label),
-        subtitle: Text(value.trim().isEmpty ? 'Chưa cập nhật' : value),
-      ),
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      subtitle: Text(value.trim().isEmpty ? 'Chưa cập nhật' : value),
     );
   }
 }
@@ -429,23 +386,7 @@ class _ProfileError extends StatelessWidget {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.storefront_outlined,
-              size: 54,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Không thể tải hồ sơ đối tác',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
-            ),
-            const SizedBox(height: 6),
-            Text(message, textAlign: TextAlign.center),
-          ],
-        ),
+        child: Text(message, textAlign: TextAlign.center),
       ),
     );
   }

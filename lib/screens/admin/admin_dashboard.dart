@@ -1,9 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../model/booking.dart';
 import '../../model/provider_application.dart';
 import '../../services/admin_service.dart';
 import '../../services/auth.dart';
+import 'commission_management_page.dart';
+import 'provider_payment_profiles_page.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -13,15 +16,31 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
-  final _service = AdminService();
-  int _currentIndex = 0;
+  final AdminService _service = AdminService();
+  int _index = 0;
 
   static const _titles = [
-    'Tổng quan',
+    'Tổng quan hệ thống',
     'Duyệt nhà cung cấp',
-    'Người dùng',
+    'Quản lý người dùng',
     'Đơn đặt phòng',
   ];
+
+  void _openPaymentProfiles() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const ProviderPaymentProfilesPage(),
+      ),
+    );
+  }
+
+  void _openCommissions() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const CommissionManagementPage(),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,26 +53,49 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_titles[_currentIndex]),
+        title: Text(_titles[_index]),
         actions: [
-          IconButton(
-            tooltip: 'Làm mới',
-            onPressed: () => setState(() {}),
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          IconButton(
-            tooltip: 'Đăng xuất',
-            onPressed: AuthService().signOut,
-            icon: const Icon(Icons.logout_rounded),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'banks') _openPaymentProfiles();
+              if (value == 'commission') _openCommissions();
+              if (value == 'logout') AuthService().signOut();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'banks',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.account_balance_outlined),
+                  title: Text('Xác minh ngân hàng'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'commission',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.percent_rounded),
+                  title: Text('Quản lý hoa hồng'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'logout',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.logout_rounded),
+                  title: Text('Đăng xuất'),
+                ),
+              ),
+            ],
           ),
           const SizedBox(width: 8),
         ],
       ),
-      body: IndexedStack(index: _currentIndex, children: pages),
+      body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
+        selectedIndex: _index,
+        onDestinationSelected: (value) {
+          setState(() => _index = value);
         },
         destinations: const [
           NavigationDestination(
@@ -100,10 +142,10 @@ class _OverviewPage extends StatelessWidget {
 
         return GridView.count(
           padding: const EdgeInsets.all(20),
-          crossAxisCount: MediaQuery.sizeOf(context).width >= 700 ? 4 : 2,
+          crossAxisCount: MediaQuery.sizeOf(context).width >= 800 ? 3 : 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 1.25,
+          childAspectRatio: 1.3,
           children: [
             _StatCard(
               label: 'Người dùng',
@@ -118,7 +160,7 @@ class _OverviewPage extends StatelessWidget {
               color: Colors.green,
             ),
             _StatCard(
-              label: 'Chờ xét duyệt',
+              label: 'Hồ sơ chờ duyệt',
               value: stats.pendingApplications,
               icon: Icons.pending_actions_rounded,
               color: Colors.orange,
@@ -128,6 +170,18 @@ class _OverviewPage extends StatelessWidget {
               value: stats.bookings,
               icon: Icons.event_available_rounded,
               color: Colors.pink,
+            ),
+            _StatCard(
+              label: 'Ngân hàng chờ duyệt',
+              value: stats.pendingPaymentProfiles,
+              icon: Icons.account_balance_rounded,
+              color: Colors.indigo,
+            ),
+            _StatCard(
+              label: 'Hoa hồng chưa trả',
+              value: stats.unpaidCommissionInvoices,
+              icon: Icons.percent_rounded,
+              color: Colors.red,
             ),
           ],
         );
@@ -148,22 +202,94 @@ class _ApplicationsPage extends StatefulWidget {
 class _ApplicationsPageState extends State<_ApplicationsPage> {
   String _status = 'pending';
 
+  Future<void> _approve(ProviderApplication application) async {
+    try {
+      await widget.service.approveApplication(application);
+
+      if (!mounted) return;
+      _message('Đã duyệt nhà cung cấp.');
+    } catch (error) {
+      if (!mounted) return;
+      _message(_cleanError(error));
+    }
+  }
+
+  Future<void> _reject(ProviderApplication application) async {
+    final controller = TextEditingController();
+
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Từ chối hồ sơ'),
+          content: TextField(
+            controller: controller,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Lý do từ chối',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Hủy'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, controller.text);
+              },
+              child: const Text('Từ chối'),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (!mounted || reason == null) return;
+
+    try {
+      await widget.service.rejectApplication(application, reason);
+
+      if (!mounted) return;
+      _message('Đã từ chối hồ sơ.');
+    } catch (error) {
+      if (!mounted) return;
+      _message(_cleanError(error));
+    }
+  }
+
+  void _message(String value) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(value)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          padding: const EdgeInsets.all(16),
           child: SegmentedButton<String>(
             segments: const [
-              ButtonSegment(value: 'pending', label: Text('Chờ duyệt')),
-              ButtonSegment(value: 'approved', label: Text('Đã duyệt')),
-              ButtonSegment(value: 'rejected', label: Text('Từ chối')),
-              ButtonSegment(value: 'all', label: Text('Tất cả')),
+              ButtonSegment(
+                value: 'pending',
+                label: Text('Chờ duyệt'),
+              ),
+              ButtonSegment(
+                value: 'approved',
+                label: Text('Đã duyệt'),
+              ),
+              ButtonSegment(
+                value: 'rejected',
+                label: Text('Từ chối'),
+              ),
             ],
             selected: {_status},
-            onSelectionChanged: (values) {
-              setState(() => _status = values.first);
+            onSelectionChanged: (value) {
+              setState(() => _status = value.first);
             },
           ),
         ),
@@ -171,29 +297,24 @@ class _ApplicationsPageState extends State<_ApplicationsPage> {
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: widget.service.watchApplications(_status),
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
+              if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final applications =
-                  snapshot.data?.docs.map((document) {
-                    return ProviderApplication.fromMap(document.data());
-                  }).toList() ??
-                  [];
+              final documents = snapshot.data!.docs;
 
-              if (applications.isEmpty) {
-                return const _EmptyState(
-                  icon: Icons.inbox_outlined,
-                  title: 'Không có hồ sơ',
-                );
+              if (documents.isEmpty) {
+                return const Center(child: Text('Không có hồ sơ'));
               }
 
               return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-                itemCount: applications.length,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                itemCount: documents.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, index) {
-                  final application = applications[index];
+                  final application = ProviderApplication.fromMap(
+                    documents[index].data(),
+                  );
 
                   return Card(
                     child: ListTile(
@@ -203,15 +324,39 @@ class _ApplicationsPageState extends State<_ApplicationsPage> {
                       ),
                       title: Text(
                         application.businessName,
-                        style: const TextStyle(fontWeight: FontWeight.w900),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                       subtitle: Text(
                         '${application.representativeName}\n'
-                        '${application.phoneNumber}',
+                        '${application.phoneNumber}\n'
+                        '${application.address}',
                       ),
                       isThreeLine: true,
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => _showApplication(application),
+                      trailing: _status == 'pending'
+                          ? PopupMenuButton<String>(
+                              onSelected: (value) {
+                                if (value == 'approve') {
+                                  _approve(application);
+                                }
+
+                                if (value == 'reject') {
+                                  _reject(application);
+                                }
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'approve',
+                                  child: Text('Phê duyệt'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'reject',
+                                  child: Text('Từ chối'),
+                                ),
+                              ],
+                            )
+                          : null,
                     ),
                   );
                 },
@@ -221,165 +366,6 @@ class _ApplicationsPageState extends State<_ApplicationsPage> {
         ),
       ],
     );
-  }
-
-  void _showApplication(ProviderApplication application) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.9,
-          maxChildSize: 0.97,
-          builder: (context, controller) {
-            return ListView(
-              controller: controller,
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-              children: [
-                Text(
-                  application.businessName,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _InfoTile(
-                  icon: Icons.person_outline,
-                  label: 'Người đại diện',
-                  value: application.representativeName,
-                ),
-                _InfoTile(
-                  icon: Icons.phone_outlined,
-                  label: 'Số điện thoại',
-                  value: application.phoneNumber,
-                ),
-                _InfoTile(
-                  icon: Icons.location_on_outlined,
-                  label: 'Địa chỉ',
-                  value: application.address,
-                ),
-                _InfoTile(
-                  icon: Icons.badge_outlined,
-                  label: 'CCCD/CMND',
-                  value: application.identityNumber,
-                ),
-                const SizedBox(height: 18),
-                _DocumentImage(
-                  title: 'Mặt trước CCCD/CMND',
-                  url: application.identityFrontUrl,
-                ),
-                _DocumentImage(
-                  title: 'Mặt sau CCCD/CMND',
-                  url: application.identityBackUrl,
-                ),
-                _DocumentImage(
-                  title: 'Giấy phép kinh doanh',
-                  url: application.businessLicenseUrl,
-                ),
-                if (application.status == ApplicationStatus.pending) ...[
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _reject(sheetContext, application),
-                          icon: const Icon(Icons.close_rounded),
-                          label: const Text('Từ chối'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () => _approve(sheetContext, application),
-                          icon: const Icon(Icons.check_rounded),
-                          label: const Text('Phê duyệt'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _approve(
-    BuildContext sheetContext,
-    ProviderApplication application,
-  ) async {
-    try {
-      await widget.service.approveApplication(application);
-
-      if (!mounted) return;
-      Navigator.pop(sheetContext);
-      _message('Đã phê duyệt nhà cung cấp.');
-    } catch (error) {
-      _message(error.toString());
-    }
-  }
-
-  Future<void> _reject(
-    BuildContext sheetContext,
-    ProviderApplication application,
-  ) async {
-    final controller = TextEditingController();
-
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Lý do từ chối'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Nhập nội dung cần bổ sung...',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Hủy'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (controller.text.trim().isNotEmpty) {
-                  Navigator.pop(context, controller.text.trim());
-                }
-              },
-              child: const Text('Xác nhận'),
-            ),
-          ],
-        );
-      },
-    );
-
-    controller.dispose();
-    if (reason == null) return;
-
-    try {
-      await widget.service.rejectApplication(application, reason);
-
-      if (!mounted) return;
-      Navigator.pop(sheetContext);
-      _message('Đã từ chối hồ sơ.');
-    } catch (error) {
-      _message(error.toString());
-    }
-  }
-
-  void _message(String message) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -393,19 +379,16 @@ class _UsersPage extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: service.watchUsers(),
       builder: (context, snapshot) {
-        final users = snapshot.data?.docs ?? [];
-
-        if (users.isEmpty) {
-          return const _EmptyState(
-            icon: Icons.people_outline,
-            title: 'Chưa có người dùng',
-          );
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
         }
+
+        final users = snapshot.data!.docs;
 
         return ListView.separated(
           padding: const EdgeInsets.all(20),
           itemCount: users.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
             final document = users[index];
             final user = document.data();
@@ -414,28 +397,29 @@ class _UsersPage extends StatelessWidget {
             return Card(
               child: SwitchListTile(
                 value: active,
-                onChanged: user['role'] == 'admin'
-                    ? null
-                    : (value) async {
-                        try {
-                          await service.setUserActive(document.id, value);
-                        } catch (error) {
-                          if (!context.mounted) return;
+                onChanged: (value) async {
+                  try {
+                    await service.setUserActive(document.id, value);
+                  } catch (error) {
+                    if (!context.mounted) return;
 
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(error.toString())),
-                          );
-                        }
-                      },
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(_cleanError(error))),
+                    );
+                  }
+                },
                 secondary: CircleAvatar(
-                  child: Text(
-                    (user['fullName'] as String? ?? '?').characters.first
-                        .toUpperCase(),
+                  child: Icon(
+                    user['role'] == 'admin'
+                        ? Icons.admin_panel_settings_outlined
+                        : user['role'] == 'provider'
+                        ? Icons.storefront_outlined
+                        : Icons.person_outline,
                   ),
                 ),
                 title: Text(
-                  user['fullName'] as String? ?? 'Người dùng',
-                  style: const TextStyle(fontWeight: FontWeight.w900),
+                  user['fullName']?.toString() ?? 'Người dùng',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
                 subtitle: Text(
                   '${user['email'] ?? ''}\nVai trò: ${user['role'] ?? 'customer'}',
@@ -460,49 +444,53 @@ class _BookingsPage extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: service.watchBookings(),
       builder: (context, snapshot) {
-        final bookings = snapshot.data?.docs ?? [];
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final bookings = snapshot.data!.docs.toList()
+          ..sort((first, second) {
+            final firstTime =
+                first.data()['createdAt'] as Timestamp?;
+            final secondTime =
+                second.data()['createdAt'] as Timestamp?;
+
+            return (secondTime?.millisecondsSinceEpoch ?? 0).compareTo(
+              firstTime?.millisecondsSinceEpoch ?? 0,
+            );
+          });
 
         if (bookings.isEmpty) {
-          return const _EmptyState(
-            icon: Icons.event_busy_outlined,
-            title: 'Chưa có đơn đặt phòng',
-          );
+          return const Center(child: Text('Không có đơn đặt phòng'));
         }
 
         return ListView.separated(
           padding: const EdgeInsets.all(20),
           itemCount: bookings.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
             final document = bookings[index];
-            final booking = document.data();
+            final booking = BookingModel.fromMap(
+              document.data(),
+              document.id,
+            );
 
             return Card(
               child: ListTile(
                 contentPadding: const EdgeInsets.all(14),
-                leading: const Icon(Icons.hotel_outlined),
+                leading: const CircleAvatar(
+                  child: Icon(Icons.receipt_long_outlined),
+                ),
                 title: Text(
-                  booking['hotelName'] as String? ?? 'Khách sạn',
+                  booking.hotelName,
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
                 subtitle: Text(
-                  'Phòng: ${booking['roomNumber'] ?? ''}\n'
-                  'Trạng thái: ${booking['status'] ?? 'pending'}',
+                  '${booking.customerName} · ${booking.customerPhone}\n'
+                  'Phòng ${booking.roomNumber} · ${booking.statusLabel}\n'
+                  '${_money(booking.totalAmount)}',
                 ),
                 isThreeLine: true,
-                trailing: PopupMenuButton<String>(
-                  onSelected: (status) {
-                    service.updateBookingStatus(document.id, status);
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'confirmed', child: Text('Xác nhận')),
-                    PopupMenuItem(
-                      value: 'completed',
-                      child: Text('Hoàn thành'),
-                    ),
-                    PopupMenuItem(value: 'cancelled', child: Text('Hủy đơn')),
-                  ],
-                ),
               ),
             );
           },
@@ -529,19 +517,19 @@ class _StatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(15),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: color),
+            Icon(icon, color: color, size: 30),
             const Spacer(),
             Text(
               '$value',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
             ),
-            Text(label, overflow: TextOverflow.ellipsis),
+            Text(label),
           ],
         ),
       ),
@@ -549,81 +537,18 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
+String _money(double value) {
+  final raw = value.round().toString();
 
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon),
-      title: Text(label),
-      subtitle: Text(value),
-    );
-  }
+  return '${raw.replaceAllMapped(
+    RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
+    (match) => '${match[1]}.',
+  )}đ';
 }
 
-class _DocumentImage extends StatelessWidget {
-  const _DocumentImage({required this.title, required this.url});
-
-  final String title;
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
-          const SizedBox(height: 8),
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) {
-                  return const Center(
-                    child: Icon(Icons.broken_image_outlined, size: 42),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.icon, required this.title});
-
-  final IconData icon;
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 56),
-          const SizedBox(height: 12),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
-        ],
-      ),
-    );
-  }
+String _cleanError(Object? error) {
+  return error
+      .toString()
+      .replaceFirst('Bad state: ', '')
+      .replaceFirst('Exception: ', '');
 }

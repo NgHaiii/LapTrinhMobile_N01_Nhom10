@@ -2,90 +2,105 @@ import 'package:flutter/material.dart';
 
 import '../../model/hotel.dart';
 import '../../model/room.dart';
+import '../../model/room_rate_plan.dart';
 import '../../services/provider_service.dart';
 import '../../widgets/cloudinary_image_field.dart';
+import 'widgets/rate_plan_form.dart';
 
 class ProviderRoomsPage extends StatefulWidget {
-  const ProviderRoomsPage({super.key, required this.service});
+  const ProviderRoomsPage({
+    super.key,
+    required this.service,
+  });
 
   final ProviderService service;
 
   @override
-  State<ProviderRoomsPage> createState() => _ProviderRoomsPageState();
+  State<ProviderRoomsPage> createState() =>
+      _ProviderRoomsPageState();
 }
 
-class _ProviderRoomsPageState extends State<ProviderRoomsPage> {
+class _ProviderRoomsPageState
+    extends State<ProviderRoomsPage> {
   String? _hotelId;
 
-  Future<void> _showForm(List<HotelModel> hotels, [RoomModel? room]) async {
+  Future<void> _openForm(
+    List<HotelModel> hotels, [
+    RoomModel? room,
+  ]) async {
     if (hotels.isEmpty) {
-      _message('Bạn cần tạo khách sạn trước khi thêm phòng.');
+      _message(
+        'Bạn cần tạo khách sạn trước khi thêm phòng.',
+      );
       return;
     }
 
-    final selectedHotel = hotels.any((hotel) => hotel.id == _hotelId)
-        ? _hotelId
-        : hotels.first.id;
+    final selectedHotelId =
+        room?.hotelId ?? _hotelId ?? hotels.first.id;
 
     final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        builder: (_) => _RoomFormView(
+      MaterialPageRoute(
+        builder: (_) => _RoomFormScreen(
           service: widget.service,
           hotels: hotels,
           room: room,
-          initialHotelId: selectedHotel,
+          initialHotelId: selectedHotelId,
         ),
       ),
     );
 
     if (!mounted || saved != true) return;
 
-    _message(room == null ? 'Đã thêm phòng thành công.' : 'Đã cập nhật phòng.');
+    _message(
+      room == null
+          ? 'Đã thêm phòng thành công.'
+          : 'Đã cập nhật thông tin phòng.',
+    );
   }
 
   Future<void> _delete(RoomModel room) async {
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          icon: const Icon(Icons.delete_outline),
-          title: const Text('Xóa phòng?'),
-          content: Text(
-            'Bạn có chắc muốn xóa phòng ${room.roomNumber}? '
-            'Thao tác này không thể hoàn tác.',
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.delete_outline),
+        title: const Text('Xóa phòng?'),
+        content: Text(
+          'Phòng ${room.roomNumber} sẽ bị xóa khỏi '
+          'khách sạn. Thao tác này không thể hoàn tác.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, false),
+            child: const Text('Đóng'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Hủy'),
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              icon: const Icon(Icons.delete_outline),
-              label: const Text('Xóa'),
-            ),
-          ],
-        );
-      },
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, true),
+            child: const Text('Xóa phòng'),
+          ),
+        ],
+      ),
     );
 
     if (accepted != true) return;
 
     try {
       await widget.service.deleteRoom(room);
+
+      if (!mounted) return;
       _message('Đã xóa phòng.');
     } catch (error) {
-      _message(error.toString());
+      if (!mounted) return;
+      _message(_cleanError(error));
     }
   }
 
   void _message(String message) {
-    if (!mounted) return;
-
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message.replaceFirst('Bad state: ', ''))),
+        SnackBar(content: Text(message)),
       );
   }
 
@@ -94,9 +109,24 @@ class _ProviderRoomsPageState extends State<ProviderRoomsPage> {
     return StreamBuilder<List<HotelModel>>(
       stream: widget.service.watchHotels(),
       builder: (context, hotelSnapshot) {
+        if (hotelSnapshot.connectionState ==
+                ConnectionState.waiting &&
+            !hotelSnapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (hotelSnapshot.hasError) {
+          return _ErrorState(
+            message: _cleanError(hotelSnapshot.error),
+          );
+        }
+
         final hotels = hotelSnapshot.data ?? [];
 
-        final selectedHotel = hotels.any((hotel) => hotel.id == _hotelId)
+        final selectedHotel =
+            hotels.any((hotel) => hotel.id == _hotelId)
             ? _hotelId
             : hotels.isEmpty
             ? null
@@ -105,36 +135,51 @@ class _ProviderRoomsPageState extends State<ProviderRoomsPage> {
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+              padding: const EdgeInsets.fromLTRB(
+                20,
+                16,
+                20,
+                12,
+              ),
               child: Row(
                 children: [
                   Expanded(
-                    child: DropdownButtonFormField<String>(
-                      key: ValueKey(selectedHotel),
-                      initialValue: selectedHotel,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Khách sạn đang quản lý',
-                        prefixIcon: Icon(Icons.apartment_outlined),
-                      ),
-                      items: hotels.map((hotel) {
-                        return DropdownMenuItem(
-                          value: hotel.id,
-                          child: Text(
-                            hotel.name,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() => _hotelId = value);
-                      },
-                    ),
+                    child:
+                        DropdownButtonFormField<String>(
+                          key: ValueKey(selectedHotel),
+                          initialValue: selectedHotel,
+                          isExpanded: true,
+                          decoration:
+                              const InputDecoration(
+                                labelText: 'Khách sạn',
+                                prefixIcon: Icon(
+                                  Icons
+                                      .apartment_outlined,
+                                ),
+                              ),
+                          items: hotels.map((hotel) {
+                            return DropdownMenuItem(
+                              value: hotel.id,
+                              child: Text(
+                                hotel.name,
+                                overflow:
+                                    TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(
+                              () => _hotelId = value,
+                            );
+                          },
+                        ),
                   ),
                   const SizedBox(width: 10),
                   IconButton.filled(
                     tooltip: 'Thêm phòng',
-                    onPressed: hotels.isEmpty ? null : () => _showForm(hotels),
+                    onPressed: hotels.isEmpty
+                        ? null
+                        : () => _openForm(hotels),
                     icon: const Icon(Icons.add_rounded),
                   ),
                 ],
@@ -142,48 +187,66 @@ class _ProviderRoomsPageState extends State<ProviderRoomsPage> {
             ),
             Expanded(
               child: selectedHotel == null
-                  ? const _EmptyRooms(
-                      title: 'Chưa có khách sạn',
-                      message: 'Hãy tạo khách sạn trước khi thêm phòng.',
+                  ? const _EmptyState(
+                      icon: Icons.apartment_outlined,
+                      message:
+                          'Hãy tạo khách sạn trước khi thêm phòng.',
                     )
                   : StreamBuilder<List<RoomModel>>(
-                      stream: widget.service.watchRooms(hotelId: selectedHotel),
+                      stream: widget.service.watchRooms(
+                        hotelId: selectedHotel,
+                      ),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
+                                ConnectionState.waiting &&
+                            !snapshot.hasData) {
                           return const Center(
-                            child: CircularProgressIndicator(),
+                            child:
+                                CircularProgressIndicator(),
                           );
                         }
 
                         if (snapshot.hasError) {
-                          return _EmptyRooms(
-                            title: 'Không thể tải phòng',
-                            message: snapshot.error.toString(),
+                          return _ErrorState(
+                            message: _cleanError(
+                              snapshot.error,
+                            ),
                           );
                         }
 
-                        final rooms = snapshot.data ?? [];
+                        final rooms =
+                            snapshot.data ?? [];
 
                         if (rooms.isEmpty) {
-                          return const _EmptyRooms(
-                            title: 'Khách sạn chưa có phòng',
-                            message: 'Nhấn nút + để thêm phòng đầu tiên.',
+                          return const _EmptyState(
+                            icon: Icons.bed_outlined,
+                            message:
+                                'Khách sạn chưa có phòng.',
                           );
                         }
 
                         return ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                          padding:
+                              const EdgeInsets.fromLTRB(
+                                20,
+                                4,
+                                20,
+                                28,
+                              ),
                           itemCount: rooms.length,
                           separatorBuilder: (_, __) =>
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 10),
                           itemBuilder: (context, index) {
                             final room = rooms[index];
 
                             return _RoomCard(
                               room: room,
-                              onEdit: () => _showForm(hotels, room),
-                              onDelete: () => _delete(room),
+                              onEdit: () => _openForm(
+                                hotels,
+                                room,
+                              ),
+                              onDelete: () =>
+                                  _delete(room),
                             );
                           },
                         );
@@ -214,294 +277,193 @@ class _RoomCard extends StatelessWidget {
 
     return Card(
       clipBehavior: Clip.antiAlias,
-      margin: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: _RoomImageCarousel(images: room.images),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${room.type} · Phòng ${room.roomNumber}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w900),
-                      ),
-                      const SizedBox(height: 7),
-                      Text(
-                        '${_formatMoney(room.price)}/đêm',
-                        style: TextStyle(
-                          color: colors.primary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
+      child: InkWell(
+        onTap: onEdit,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(7),
+                child: SizedBox(
+                  width: 104,
+                  height: 126,
+                  child: room.coverImage.isEmpty
+                      ? ColoredBox(
+                          color: colors
+                              .surfaceContainerHighest,
+                          child: const Icon(
+                            Icons.bed_outlined,
+                            size: 38,
+                          ),
+                        )
+                      : Image.network(
+                          room.coverImage,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              ColoredBox(
+                                color: colors
+                                    .surfaceContainerHighest,
+                                child: const Icon(
+                                  Icons
+                                      .broken_image_outlined,
+                                ),
+                              ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _InfoChip(
-                            icon: Icons.group_outlined,
-                            label: '${room.maxGuests} khách',
-                          ),
-                          _InfoChip(
-                            icon: room.isAvailable
-                                ? Icons.check_circle_outline
-                                : Icons.pause_circle_outline,
-                            label: room.isAvailable
-                                ? 'Đang mở bán'
-                                : 'Tạm đóng',
-                            foreground: room.isAvailable
-                                ? Colors.green.shade700
-                                : Colors.orange.shade800,
-                          ),
-                          if (room.images.isNotEmpty)
-                            _InfoChip(
-                              icon: Icons.photo_library_outlined,
-                              label: '${room.images.length} ảnh',
+                ),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${room.type} · '
+                            'Phòng ${room.roomNumber}',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
                             ),
-                        ],
-                      ),
-                      if (room.description.trim().isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          room.description,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            height: 1.4,
                           ),
+                        ),
+                        PopupMenuButton<String>(
+                          tooltip: 'Tùy chọn',
+                          padding: EdgeInsets.zero,
+                          onSelected: (value) {
+                            if (value == 'edit') onEdit();
+                            if (value == 'delete') {
+                              onDelete();
+                            }
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: 'edit',
+                              child: ListTile(
+                                leading: Icon(
+                                  Icons.edit_outlined,
+                                ),
+                                title: Text('Chỉnh sửa'),
+                                contentPadding:
+                                    EdgeInsets.zero,
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: ListTile(
+                                leading: Icon(
+                                  Icons.delete_outline,
+                                ),
+                                title: Text('Xóa phòng'),
+                                contentPadding:
+                                    EdgeInsets.zero,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
-                    ],
-                  ),
-                ),
-                PopupMenuButton<String>(
-                  tooltip: 'Tùy chọn',
-                  onSelected: (value) {
-                    if (value == 'edit') {
-                      onEdit();
-                    } else if (value == 'delete') {
-                      onDelete();
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: 'edit',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.edit_outlined),
-                        title: Text('Chỉnh sửa'),
+                    ),
+                    Text(
+                      '${room.maxGuests} khách'
+                      '${room.area > 0 ? ' · ${room.area.toStringAsFixed(0)} m²' : ''}'
+                      ' · ${room.images.length} ảnh',
+                      style: TextStyle(
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
-                    PopupMenuItem(
-                      value: 'delete',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.delete_outline),
-                        title: Text('Xóa phòng'),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Giờ đầu ${_money(room.effectiveFirstHourPrice)}',
+                      style: TextStyle(
+                        color: colors.primary,
+                        fontWeight: FontWeight.w900,
                       ),
+                    ),
+                    Text(
+                      'Từ giờ 2: '
+                      '${_money(room.effectiveAdditionalHourPrice)}/giờ',
+                      style: TextStyle(
+                        color: colors.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _SmallBadge(
+                          icon: room.isAvailable
+                              ? Icons.check_circle_outline
+                              : Icons.pause_circle_outline,
+                          label: room.isAvailable
+                              ? 'Đang mở'
+                              : 'Tạm đóng',
+                          color: room.isAvailable
+                              ? Colors.green
+                              : Colors.orange,
+                        ),
+                        if (room.enabledRatePlans.isNotEmpty)
+                          _SmallBadge(
+                            icon:
+                                Icons.local_offer_outlined,
+                            label:
+                                '${room.enabledRatePlans.length} combo',
+                            color: colors.secondary,
+                          ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _RoomImageCarousel extends StatefulWidget {
-  const _RoomImageCarousel({required this.images});
-
-  final List<String> images;
-
-  @override
-  State<_RoomImageCarousel> createState() => _RoomImageCarouselState();
-}
-
-class _RoomImageCarouselState extends State<_RoomImageCarousel> {
-  int _currentIndex = 0;
-
-  List<String> get _validImages {
-    return widget.images.where((url) => url.trim().isNotEmpty).toSet().toList();
-  }
-
-  @override
-  void didUpdateWidget(covariant _RoomImageCarousel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    final images = _validImages;
-    if (images.isEmpty) {
-      _currentIndex = 0;
-    } else if (_currentIndex >= images.length) {
-      _currentIndex = images.length - 1;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final images = _validImages;
-    final colors = Theme.of(context).colorScheme;
-
-    if (images.isEmpty) {
-      return ColoredBox(
-        color: colors.surfaceContainerHighest,
-        child: Center(
-          child: Icon(
-            Icons.bed_outlined,
-            size: 52,
-            color: colors.onSurfaceVariant,
-          ),
-        ),
-      );
-    }
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        PageView.builder(
-          itemCount: images.length,
-          onPageChanged: (index) {
-            setState(() => _currentIndex = index);
-          },
-          itemBuilder: (context, index) {
-            return Image.network(
-              images[index],
-              fit: BoxFit.cover,
-              loadingBuilder: (_, child, progress) {
-                if (progress == null) return child;
-
-                return ColoredBox(
-                  color: colors.surfaceContainerHighest,
-                  child: const Center(child: CircularProgressIndicator()),
-                );
-              },
-              errorBuilder: (_, __, ___) {
-                return ColoredBox(
-                  color: colors.surfaceContainerHighest,
-                  child: Center(
-                    child: Icon(
-                      Icons.broken_image_outlined,
-                      size: 48,
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-        if (images.length > 1)
-          Positioned(
-            top: 12,
-            right: 12,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.68),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.photo_library_outlined,
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      '${_currentIndex + 1}/${images.length}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        if (images.length > 1)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 10,
-            child: Center(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.58),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  child: Text(
-                    'Vuốt để xem ảnh',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.icon, required this.label, this.foreground});
+class _SmallBadge extends StatelessWidget {
+  const _SmallBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
 
   final IconData icon;
   final String label;
-  final Color? foreground;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final color = foreground ?? colors.onSurfaceVariant;
-
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(7),
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 7,
+          vertical: 4,
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16, color: color),
-            const SizedBox(width: 5),
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 4),
             Text(
               label,
               style: TextStyle(
                 color: color,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ],
@@ -511,8 +473,8 @@ class _InfoChip extends StatelessWidget {
   }
 }
 
-class _RoomFormView extends StatefulWidget {
-  const _RoomFormView({
+class _RoomFormScreen extends StatefulWidget {
+  const _RoomFormScreen({
     required this.service,
     required this.hotels,
     required this.initialHotelId,
@@ -521,29 +483,54 @@ class _RoomFormView extends StatefulWidget {
 
   final ProviderService service;
   final List<HotelModel> hotels;
-  final String? initialHotelId;
+  final String initialHotelId;
   final RoomModel? room;
 
   @override
-  State<_RoomFormView> createState() => _RoomFormViewState();
+  State<_RoomFormScreen> createState() =>
+      _RoomFormScreenState();
 }
 
-class _RoomFormViewState extends State<_RoomFormView> {
+class _RoomFormScreenState
+    extends State<_RoomFormScreen> {
   final _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _numberController;
-  late final TextEditingController _typeController;
-  late final TextEditingController _priceController;
+  late final TextEditingController
+  _nightlyPriceController;
+  late final TextEditingController
+  _firstHourPriceController;
+  late final TextEditingController
+  _additionalHourPriceController;
+  late final TextEditingController
+  _weekendPercentController;
+  late final TextEditingController
+  _holidayPercentController;
   late final TextEditingController _guestsController;
-  late final TextEditingController _descriptionController;
+  late final TextEditingController _areaController;
+  late final TextEditingController _bedCountController;
+  late final TextEditingController _bedTypeController;
+  late final TextEditingController
+  _descriptionController;
+  late final TextEditingController
+  _amenitiesController;
 
-  late String _selectedHotelId;
-  late List<String> _uploadedImageUrls;
+  late String _hotelId;
+  late String _type;
   late bool _available;
+  late List<String> _images;
+  late List<RoomRatePlan> _ratePlans;
 
   bool _saving = false;
 
-  bool get _editing => widget.room != null;
+  static const _types = [
+    'Phòng đơn',
+    'Phòng đôi',
+    'Phòng gia đình',
+    'Phòng Deluxe',
+    'Phòng Suite',
+    'Phòng VIP',
+  ];
 
   @override
   void initState() {
@@ -551,87 +538,305 @@ class _RoomFormViewState extends State<_RoomFormView> {
 
     final room = widget.room;
 
-    _selectedHotelId =
-        room?.hotelId ?? widget.initialHotelId ?? widget.hotels.first.id;
-
-    _uploadedImageUrls = List<String>.from(room?.images ?? const <String>[]);
-
+    _hotelId =
+        room?.hotelId ?? widget.initialHotelId;
+    _type = _types.contains(room?.type)
+        ? room!.type
+        : _types.first;
     _available = room?.isAvailable ?? true;
+    _images = [...?room?.images];
+    _ratePlans = [...?room?.ratePlans];
 
-    _numberController = TextEditingController(text: room?.roomNumber ?? '');
-    _typeController = TextEditingController(text: room?.type ?? '');
-    _priceController = TextEditingController(
-      text: room == null ? '' : room.price.toStringAsFixed(0),
+    _numberController = TextEditingController(
+      text: room?.roomNumber ?? '',
     );
+
+    _nightlyPriceController =
+        TextEditingController(
+          text: room == null
+              ? ''
+              : room.price.toStringAsFixed(0),
+        );
+
+    _firstHourPriceController =
+        TextEditingController(
+          text: room == null
+              ? ''
+              : room.effectiveFirstHourPrice
+                    .toStringAsFixed(0),
+        );
+
+    _additionalHourPriceController =
+        TextEditingController(
+          text: room == null
+              ? ''
+              : room.effectiveAdditionalHourPrice
+                    .toStringAsFixed(0),
+        );
+
+    _weekendPercentController =
+        TextEditingController(
+          text: room?.weekendSurchargePercent
+                  .toStringAsFixed(0) ??
+              '20',
+        );
+
+    _holidayPercentController =
+        TextEditingController(
+          text: room?.holidaySurchargePercent
+                  .toStringAsFixed(0) ??
+              '35',
+        );
+
     _guestsController = TextEditingController(
       text: room?.maxGuests.toString() ?? '2',
     );
-    _descriptionController = TextEditingController(
-      text: room?.description ?? '',
+
+    _areaController = TextEditingController(
+      text: room == null || room.area <= 0
+          ? ''
+          : room.area.toStringAsFixed(0),
+    );
+
+    _bedCountController = TextEditingController(
+      text: room?.bedCount.toString() ?? '1',
+    );
+
+    _bedTypeController = TextEditingController(
+      text: room?.bedType ?? '',
+    );
+
+    _descriptionController =
+        TextEditingController(
+          text: room?.description ?? '',
+        );
+
+    _amenitiesController = TextEditingController(
+      text: room?.amenities.join(', ') ?? '',
     );
   }
 
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate() || _saving) return;
+  Future<void> _openRatePlanForm([
+    RoomRatePlan? initialPlan,
+  ]) async {
+    final plan =
+        await showModalBottomSheet<RoomRatePlan>(
+          context: context,
+          isScrollControlled: true,
+          useSafeArea: true,
+          builder: (sheetContext) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(
+                  sheetContext,
+                ).bottom,
+              ),
+              child: FractionallySizedBox(
+                heightFactor: 0.88,
+                child: ProviderRatePlanForm(
+                  initialPlan: initialPlan,
+                  onSaved: (value) {
+                    Navigator.pop(sheetContext, value);
+                  },
+                ),
+              ),
+            );
+          },
+        );
 
-    if (_uploadedImageUrls.isEmpty) {
-      _message('Vui lòng tải lên ít nhất một ảnh phòng.');
+    if (!mounted || plan == null) return;
+
+    setState(() {
+      final index = _ratePlans.indexWhere(
+        (item) => item.id == plan.id,
+      );
+
+      if (index < 0) {
+        _ratePlans.add(plan);
+      } else {
+        _ratePlans[index] = plan;
+      }
+    });
+  }
+
+  Future<void> _removeRatePlan(
+    RoomRatePlan plan,
+  ) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Xóa combo?'),
+        content: Text(
+          'Bạn có chắc muốn xóa "${plan.name}"?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, false),
+            child: const Text('Đóng'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, true),
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+
+    if (accepted == true && mounted) {
+      setState(() {
+        _ratePlans.removeWhere(
+          (item) => item.id == plan.id,
+        );
+      });
+    }
+  }
+
+  void _toggleRatePlan(
+    RoomRatePlan plan,
+    bool enabled,
+  ) {
+    setState(() {
+      final index = _ratePlans.indexWhere(
+        (item) => item.id == plan.id,
+      );
+
+      if (index >= 0) {
+        _ratePlans[index] = plan.copyWith(
+          enabled: enabled,
+        );
+      }
+    });
+  }
+
+  Future<void> _save() async {
+    if (_saving ||
+        !_formKey.currentState!.validate()) {
       return;
     }
 
-    FocusScope.of(context).unfocus();
+    if (_images.isEmpty) {
+      _message(
+        'Vui lòng đăng ít nhất một ảnh phòng.',
+      );
+      return;
+    }
+
+    final firstPrice = _number(
+      _firstHourPriceController.text,
+    );
+
+    final additionalPrice = _number(
+      _additionalHourPriceController.text,
+    );
+
+    final weekendPercent = _number(
+      _weekendPercentController.text,
+    );
+
+    final holidayPercent = _number(
+      _holidayPercentController.text,
+    );
+
+    final guests = int.tryParse(
+      _guestsController.text.trim(),
+    );
+
+    final bedCount = int.tryParse(
+      _bedCountController.text.trim(),
+    );
+
+    if (guests == null || guests <= 0) {
+      _message('Số khách không hợp lệ.');
+      return;
+    }
+
+    if (bedCount == null || bedCount <= 0) {
+      _message('Số giường không hợp lệ.');
+      return;
+    }
+
     setState(() => _saving = true);
 
-    try {
-      final room = widget.room;
-      final images = List<String>.from(_uploadedImageUrls);
+    final amenities = _amenitiesController.text
+        .split(',')
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList();
 
-      if (room == null) {
+    try {
+      final currentRoom = widget.room;
+
+      if (currentRoom == null) {
         await widget.service.addRoom(
-          hotelId: _selectedHotelId,
-          roomNumber: _numberController.text.trim(),
-          type: _typeController.text.trim(),
-          price: double.parse(_priceController.text.trim()),
-          maxGuests: int.parse(_guestsController.text.trim()),
-          description: _descriptionController.text.trim(),
+          hotelId: _hotelId,
+          roomNumber: _numberController.text,
+          type: _type,
+          price: _number(
+            _nightlyPriceController.text,
+          ),
+          hourlyPrice: firstPrice,
+          firstHourPrice: firstPrice,
+          additionalHourPrice: additionalPrice,
+          weekendSurchargePercent:
+              weekendPercent,
+          holidaySurchargePercent:
+              holidayPercent,
+          maxGuests: guests,
+          area: _number(_areaController.text),
+          bedCount: bedCount,
+          bedType: _bedTypeController.text,
+          description:
+              _descriptionController.text,
           isAvailable: _available,
-          images: images,
+          images: _images,
+          amenities: amenities,
+          ratePlans: _ratePlans,
         );
       } else {
         await widget.service.updateRoom(
-          RoomModel(
-            id: room.id,
-            hotelId: room.hotelId,
-            providerId: room.providerId,
-            roomNumber: _numberController.text.trim(),
-            type: _typeController.text.trim(),
-            price: double.parse(_priceController.text.trim()),
-            description: _descriptionController.text.trim(),
-            maxGuests: int.parse(_guestsController.text.trim()),
+          currentRoom.copyWith(
+            hotelId: _hotelId,
+            roomNumber:
+                _numberController.text.trim(),
+            type: _type,
+            price: _number(
+              _nightlyPriceController.text,
+            ),
+            hourlyPrice: firstPrice,
+            firstHourPrice: firstPrice,
+            additionalHourPrice: additionalPrice,
+            weekendSurchargePercent:
+                weekendPercent,
+            holidaySurchargePercent:
+                holidayPercent,
+            maxGuests: guests,
+            area: _number(_areaController.text),
+            bedCount: bedCount,
+            bedType:
+                _bedTypeController.text.trim(),
+            description:
+                _descriptionController.text.trim(),
             isAvailable: _available,
-            images: images,
+            images: _images,
+            amenities: amenities,
+            ratePlans: _ratePlans,
           ),
         );
       }
 
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      Navigator.pop(context, true);
     } catch (error) {
       if (!mounted) return;
-
-      setState(() => _saving = false);
-      _message(error.toString());
+      _message(_cleanError(error));
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
-  }
-
-  void _message(String message) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text(message.replaceFirst('Bad state: ', ''))),
-      );
   }
 
   String? _required(String? value) {
@@ -643,32 +848,45 @@ class _RoomFormViewState extends State<_RoomFormView> {
   }
 
   String? _positiveNumber(String? value) {
-    final number = double.tryParse(value?.trim() ?? '');
-
-    if (number == null || number <= 0) {
+    if (_number(value ?? '') <= 0) {
       return 'Giá trị phải lớn hơn 0';
     }
 
     return null;
   }
 
-  String? _positiveInteger(String? value) {
-    final number = int.tryParse(value?.trim() ?? '');
+  String? _percentage(String? value) {
+    final number = _number(value ?? '');
 
-    if (number == null || number <= 0) {
-      return 'Số khách phải lớn hơn 0';
+    if (number < 0 || number > 100) {
+      return 'Nhập từ 0 đến 100';
     }
 
     return null;
   }
 
+  void _message(String value) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(value)),
+      );
+  }
+
   @override
   void dispose() {
     _numberController.dispose();
-    _typeController.dispose();
-    _priceController.dispose();
+    _nightlyPriceController.dispose();
+    _firstHourPriceController.dispose();
+    _additionalHourPriceController.dispose();
+    _weekendPercentController.dispose();
+    _holidayPercentController.dispose();
     _guestsController.dispose();
+    _areaController.dispose();
+    _bedCountController.dispose();
+    _bedTypeController.dispose();
     _descriptionController.dispose();
+    _amenitiesController.dispose();
     super.dispose();
   }
 
@@ -677,194 +895,396 @@ class _RoomFormViewState extends State<_RoomFormView> {
     final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: Text(_editing ? 'Chỉnh sửa phòng' : 'Thêm phòng')),
-      body: SafeArea(
-        top: false,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 720),
-            child: Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-                children: [
-                  Text(
-                    'Thông tin phòng',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Đăng nhiều ảnh để khách hàng dễ xem không gian phòng.',
-                    style: TextStyle(color: colors.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 22),
-                  CloudinaryMultiImageField(
-                    initialUrls: _uploadedImageUrls,
-                    label: 'Hình ảnh phòng',
-                    folder: 'room_images/${widget.service.providerId}',
-                    tag: 'room',
-                    onChanged: (urls) {
-                      _uploadedImageUrls = List<String>.from(urls);
-                    },
-                  ),
-                  const SizedBox(height: 18),
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedHotelId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Khách sạn',
-                      prefixIcon: Icon(Icons.apartment_outlined),
-                    ),
-                    items: widget.hotels.map((hotel) {
-                      return DropdownMenuItem(
-                        value: hotel.id,
-                        child: Text(
-                          hotel.name,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: _editing || _saving
-                        ? null
-                        : (value) {
-                            if (value != null) {
-                              setState(() => _selectedHotelId = value);
-                            }
-                          },
-                  ),
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: _numberController,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Số phòng',
-                      prefixIcon: Icon(Icons.numbers_outlined),
-                    ),
-                    validator: _required,
-                  ),
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: _typeController,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Loại phòng',
-                      hintText: 'Ví dụ: Deluxe, Standard, Suite',
-                      prefixIcon: Icon(Icons.bed_outlined),
-                    ),
-                    validator: _required,
-                  ),
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: _priceController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Giá mỗi đêm',
-                      prefixIcon: Icon(Icons.payments_outlined),
-                      suffixText: 'đ',
-                    ),
-                    validator: _positiveNumber,
-                  ),
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: _guestsController,
-                    keyboardType: TextInputType.number,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Số khách tối đa',
-                      prefixIcon: Icon(Icons.group_outlined),
-                    ),
-                    validator: _positiveInteger,
-                  ),
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: _descriptionController,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: 'Mô tả phòng',
-                      hintText: 'Tiện nghi, diện tích, loại giường...',
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Card(
-                    margin: EdgeInsets.zero,
-                    child: SwitchListTile(
-                      secondary: Icon(
-                        _available
-                            ? Icons.storefront_outlined
-                            : Icons.visibility_off_outlined,
-                      ),
-                      title: const Text(
-                        'Trạng thái mở bán',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      subtitle: Text(
-                        _available
-                            ? 'Khách hàng có thể đặt phòng'
-                            : 'Phòng đang được tạm ẩn',
-                      ),
-                      value: _available,
-                      onChanged: _saving
-                          ? null
-                          : (value) {
-                              setState(() => _available = value);
-                            },
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  FilledButton.icon(
-                    onPressed: _saving ? null : _save,
-                    icon: _saving
-                        ? const SizedBox.square(
-                            dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.save_outlined),
-                    label: Text(_saving ? 'Đang lưu...' : 'Lưu phòng'),
-                  ),
-                ],
-              ),
-            ),
-          ),
+      appBar: AppBar(
+        title: Text(
+          widget.room == null
+              ? 'Thêm phòng'
+              : 'Chỉnh sửa phòng',
         ),
       ),
-    );
-  }
-}
-
-class _EmptyRooms extends StatelessWidget {
-  const _EmptyRooms({required this.title, required this.message});
-
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(30),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            32,
+          ),
           children: [
-            Icon(Icons.bed_outlined, size: 56, color: colors.primary),
+            const _SectionTitle(
+              icon: Icons.bed_outlined,
+              title: 'Thông tin phòng',
+            ),
             const SizedBox(height: 12),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+            DropdownButtonFormField<String>(
+              initialValue: _hotelId,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Khách sạn',
+                prefixIcon: Icon(
+                  Icons.apartment_outlined,
+                ),
+              ),
+              items: widget.hotels.map((hotel) {
+                return DropdownMenuItem(
+                  value: hotel.id,
+                  child: Text(
+                    hotel.name,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                );
+              }).toList(),
+              onChanged: widget.room == null
+                  ? (value) {
+                      if (value != null) {
+                        setState(
+                          () => _hotelId = value,
+                        );
+                      }
+                    }
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _numberController,
+                    validator: _required,
+                    decoration:
+                        const InputDecoration(
+                          labelText: 'Số phòng',
+                          prefixIcon: Icon(
+                            Icons.meeting_room_outlined,
+                          ),
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child:
+                      DropdownButtonFormField<String>(
+                        initialValue: _type,
+                        isExpanded: true,
+                        decoration:
+                            const InputDecoration(
+                              labelText: 'Loại phòng',
+                            ),
+                        items: _types.map((type) {
+                          return DropdownMenuItem(
+                            value: type,
+                            child: Text(
+                              type,
+                              overflow:
+                                  TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(
+                              () => _type = value,
+                            );
+                          }
+                        },
+                      ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const _SectionTitle(
+              icon: Icons.payments_outlined,
+              title: 'Giá thuê theo giờ',
             ),
             const SizedBox(height: 5),
             Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: colors.onSurfaceVariant),
+              'Giá ngày lễ được ưu tiên và không cộng '
+              'thêm phụ thu cuối tuần.',
+              style: TextStyle(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller:
+                        _firstHourPriceController,
+                    validator: _positiveNumber,
+                    keyboardType:
+                        TextInputType.number,
+                    decoration:
+                        const InputDecoration(
+                          labelText: 'Giờ đầu',
+                          suffixText: 'đ',
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    controller:
+                        _additionalHourPriceController,
+                    validator: _positiveNumber,
+                    keyboardType:
+                        TextInputType.number,
+                    decoration:
+                        const InputDecoration(
+                          labelText: 'Từ giờ thứ 2',
+                          suffixText: 'đ/giờ',
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _nightlyPriceController,
+              validator: _positiveNumber,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText:
+                    'Giá tham khảo mỗi đêm',
+                suffixText: 'đ',
+                prefixIcon: Icon(
+                  Icons.nightlight_outlined,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller:
+                        _weekendPercentController,
+                    validator: _percentage,
+                    keyboardType:
+                        TextInputType.number,
+                    decoration:
+                        const InputDecoration(
+                          labelText:
+                              'Phụ thu cuối tuần',
+                          suffixText: '%',
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    controller:
+                        _holidayPercentController,
+                    validator: _percentage,
+                    keyboardType:
+                        TextInputType.number,
+                    decoration:
+                        const InputDecoration(
+                          labelText: 'Phụ thu ngày lễ',
+                          suffixText: '%',
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                const Expanded(
+                  child: _SectionTitle(
+                    icon:
+                        Icons.local_offer_outlined,
+                    title: 'Combo giá',
+                  ),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Thêm combo',
+                  onPressed: _openRatePlanForm,
+                  icon: const Icon(Icons.add_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (_ratePlans.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color:
+                      colors.surfaceContainerLow,
+                  borderRadius:
+                      BorderRadius.circular(8),
+                  border: Border.all(
+                    color: colors.outlineVariant,
+                  ),
+                ),
+                child: const Text(
+                  'Chưa có combo. Khách hàng vẫn có '
+                  'thể đặt theo giá từng giờ.',
+                ),
+              )
+            else
+              ..._ratePlans.map(
+                (plan) => Padding(
+                  padding:
+                      const EdgeInsets.only(bottom: 8),
+                  child: _RatePlanTile(
+                    plan: plan,
+                    onEdit: () =>
+                        _openRatePlanForm(plan),
+                    onDelete: () =>
+                        _removeRatePlan(plan),
+                    onEnabledChanged: (value) =>
+                        _toggleRatePlan(
+                          plan,
+                          value,
+                        ),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 24),
+            const _SectionTitle(
+              icon: Icons.groups_outlined,
+              title: 'Sức chứa và tiện nghi',
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _guestsController,
+                    validator: _positiveNumber,
+                    keyboardType:
+                        TextInputType.number,
+                    decoration:
+                        const InputDecoration(
+                          labelText: 'Số khách',
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    controller: _areaController,
+                    keyboardType:
+                        TextInputType.number,
+                    decoration:
+                        const InputDecoration(
+                          labelText: 'Diện tích',
+                          suffixText: 'm²',
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller:
+                        _bedCountController,
+                    validator: _positiveNumber,
+                    keyboardType:
+                        TextInputType.number,
+                    decoration:
+                        const InputDecoration(
+                          labelText: 'Số giường',
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    controller:
+                        _bedTypeController,
+                    decoration:
+                        const InputDecoration(
+                          labelText: 'Loại giường',
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _amenitiesController,
+              decoration: const InputDecoration(
+                labelText:
+                    'Tiện ích, ngăn cách bằng dấu phẩy',
+                prefixIcon: Icon(
+                  Icons.checklist_rounded,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _descriptionController,
+              minLines: 3,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Mô tả phòng',
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const _SectionTitle(
+              icon:
+                  Icons.photo_library_outlined,
+              title: 'Hình ảnh phòng',
+            ),
+            const SizedBox(height: 12),
+            CloudinaryMultiImageField(
+              folder:
+                  'provider_rooms/${widget.service.providerId}',
+              tag: 'provider_room',
+              label: 'Chọn ảnh từ thiết bị',
+              initialUrls: _images,
+              onChanged: (values) {
+                _images =
+                    List<String>.from(values);
+              },
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: Icon(
+                _available
+                    ? Icons.check_circle_outline
+                    : Icons.pause_circle_outline,
+              ),
+              title: const Text(
+                'Cho phép nhận đặt phòng',
+              ),
+              subtitle: Text(
+                _available
+                    ? 'Khách hàng có thể đặt phòng'
+                    : 'Phòng đang tạm đóng',
+              ),
+              value: _available,
+              onChanged: (value) {
+                setState(
+                  () => _available = value,
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child:
+                          CircularProgressIndicator(
+                            strokeWidth: 2,
+                          ),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: Text(
+                _saving
+                    ? 'Đang lưu...'
+                    : 'Lưu thông tin phòng',
+              ),
             ),
           ],
         ),
@@ -873,13 +1293,191 @@ class _EmptyRooms extends StatelessWidget {
   }
 }
 
-String _formatMoney(double value) {
-  final raw = value.toStringAsFixed(0);
+class _RatePlanTile extends StatelessWidget {
+  const _RatePlanTile({
+    required this.plan,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onEnabledChanged,
+  });
 
-  final formatted = raw.replaceAllMapped(
+  final RoomRatePlan plan;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final ValueChanged<bool> onEnabledChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: colors.outlineVariant,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.local_offer_outlined,
+            color: plan.enabled
+                ? colors.primary
+                : colors.outline,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  plan.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${plan.timeLabel} · '
+                  '${_money(plan.price)}',
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: plan.enabled,
+            onChanged: onEnabledChanged,
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'edit') onEdit();
+              if (value == 'delete') onDelete();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'edit',
+                child: Text('Chỉnh sửa'),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: Text('Xóa combo'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({
+    required this.icon,
+    required this.title,
+  });
+
+  final IconData icon;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 21),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.icon,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 54),
+            const SizedBox(height: 10),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({
+    required this.message,
+  });
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
+
+double _number(String value) {
+  final normalized = value
+      .replaceAll('đ', '')
+      .replaceAll(' ', '')
+      .replaceAll('.', '')
+      .replaceAll(',', '.');
+
+  return double.tryParse(normalized) ?? 0;
+}
+
+String _money(double value) {
+  final raw = value.round().toString();
+
+  return '${raw.replaceAllMapped(
     RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
     (match) => '${match[1]}.',
-  );
+  )}đ';
+}
 
-  return '$formatted đ';
+String _cleanError(Object? error) {
+  return error
+      .toString()
+      .replaceFirst('Bad state: ', '')
+      .replaceFirst('Exception: ', '');
 }

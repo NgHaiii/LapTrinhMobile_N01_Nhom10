@@ -16,64 +16,76 @@ class CustomerHotelCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-
-    final images = <String>[...hotel.images];
-
-    if (images.isEmpty && hotel.imageUrl.trim().isNotEmpty) {
-      images.add(hotel.imageUrl.trim());
-    }
+    final hasPrice =
+        hotel.effectiveMinFirstHourPrice > 0;
 
     return Card(
-      margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: CustomerImageCarousel(
-              images: images,
-              fallbackIcon: Icons.apartment_outlined,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CustomerImageCarousel(
+                    images: hotel.images,
+                    fallbackIcon:
+                        Icons.apartment_outlined,
+                  ),
+                  Positioned(
+                    left: 12,
+                    top: 12,
+                    child: _Badge(
+                      icon: Icons.hotel_outlined,
+                      label: hotel.category,
+                    ),
+                  ),
+                  Positioned(
+                    right: 12,
+                    top: 12,
+                    child: _RatingBadge(
+                      rating: hotel.rating,
+                    ),
+                  ),
+                  if (hotel.images.length > 1)
+                    Positioned(
+                      right: 12,
+                      bottom: 12,
+                      child: _Badge(
+                        icon:
+                            Icons.photo_library_outlined,
+                        label:
+                            '${hotel.images.length} ảnh',
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-          InkWell(
-            onTap: onTap,
-            child: Padding(
+            Padding(
               padding: const EdgeInsets.all(15),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          hotel.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w900,
-                              ),
+                  Text(
+                    hotel.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(
+                          fontWeight: FontWeight.w900,
                         ),
-                      ),
-                      if (hotel.rating > 0) ...[
-                        const SizedBox(width: 8),
-                        const Icon(
-                          Icons.star_rounded,
-                          size: 19,
-                          color: Colors.orange,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          hotel.rating.toStringAsFixed(1),
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                      ],
-                    ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 7),
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
                     children: [
                       Icon(
                         Icons.location_on_outlined,
@@ -87,96 +99,119 @@ class CustomerHotelCard extends StatelessWidget {
                               ? 'Chưa cập nhật địa chỉ'
                               : hotel.fullAddress,
                           maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                          overflow:
+                              TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            height: 1.35,
+                            color:
+                                colors.onSurfaceVariant,
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 11),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _HotelInfo(
-                        icon: Icons.category_outlined,
-                        label: hotel.category,
-                      ),
-                      _HotelInfo(
-                        icon: Icons.photo_library_outlined,
-                        label: '${images.length} ảnh',
-                      ),
-                      if (hotel.district.isNotEmpty)
-                        _HotelInfo(
-                          icon: Icons.map_outlined,
-                          label: hotel.district,
-                        ),
-                    ],
-                  ),
-                  if (hotel.description.trim().isNotEmpty) ...[
+                  if (hotel.amenities.isNotEmpty) ...[
                     const SizedBox(height: 11),
-                    Text(
-                      hotel.description,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: colors.onSurfaceVariant,
-                        height: 1.4,
-                      ),
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: [
+                        ...hotel.amenities
+                            .take(3)
+                            .map(
+                              (amenity) =>
+                                  _AmenityChip(
+                                    label: amenity,
+                                  ),
+                            ),
+                        if (hotel.amenities.length > 3)
+                          _AmenityChip(
+                            label:
+                                '+${hotel.amenities.length - 3}',
+                          ),
+                      ],
                     ),
                   ],
-                  const SizedBox(height: 13),
+                  const SizedBox(height: 14),
                   Row(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.end,
                     children: [
                       Expanded(
-                        child: Text(
-                          hotel.minPrice > 0
-                              ? 'Từ ${_formatMoney(hotel.minPrice)}/đêm'
-                              : 'Xem giá phòng',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.primary,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
+                        child: hasPrice
+                            ? Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment
+                                        .start,
+                                children: [
+                                  Text(
+                                    'Giá giờ đầu từ',
+                                    style: TextStyle(
+                                      color: colors
+                                          .onSurfaceVariant,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _money(
+                                      hotel
+                                          .effectiveMinFirstHourPrice,
+                                    ),
+                                    style: TextStyle(
+                                      color:
+                                          colors.primary,
+                                      fontSize: 19,
+                                      fontWeight:
+                                          FontWeight.w900,
+                                    ),
+                                  ),
+                                  if (hotel
+                                          .effectiveMinAdditionalHourPrice >
+                                      0)
+                                    Text(
+                                      'Giờ tiếp theo từ '
+                                      '${_money(hotel.effectiveMinAdditionalHourPrice)}/giờ',
+                                      style: TextStyle(
+                                        color: colors
+                                            .onSurfaceVariant,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                ],
+                              )
+                            : Text(
+                                'Chưa cập nhật giá',
+                                style: TextStyle(
+                                  color: colors.error,
+                                  fontWeight:
+                                      FontWeight.w700,
+                                ),
+                              ),
                       ),
-                      const SizedBox(width: 10),
-                      FilledButton.tonalIcon(
+                      IconButton.filledTonal(
+                        tooltip: 'Xem khách sạn',
                         onPressed: onTap,
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(0, 42),
-                          fixedSize: null,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          visualDensity: VisualDensity.compact,
+                        icon: const Icon(
+                          Icons.arrow_forward_rounded,
                         ),
-                        icon: const Icon(Icons.bed_outlined, size: 18),
-                        label: const Text('Xem phòng'),
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _HotelInfo extends StatelessWidget {
-  const _HotelInfo({required this.icon, required this.label});
+class _AmenityChip extends StatelessWidget {
+  const _AmenityChip({
+    required this.label,
+  });
 
-  final IconData icon;
   final String label;
 
   @override
@@ -186,20 +221,26 @@ class _HotelInfo extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colors.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 5,
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 15, color: colors.onSurfaceVariant),
-            const SizedBox(width: 5),
+            Icon(
+              Icons.check_circle_outline,
+              size: 14,
+              color: colors.primary,
+            ),
+            const SizedBox(width: 4),
             Text(
               label,
-              style: TextStyle(
-                color: colors.onSurfaceVariant,
-                fontSize: 12,
+              style: const TextStyle(
+                fontSize: 11,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -210,13 +251,99 @@ class _HotelInfo extends StatelessWidget {
   }
 }
 
-String _formatMoney(double value) {
-  final raw = value.toStringAsFixed(0);
+class _Badge extends StatelessWidget {
+  const _Badge({
+    required this.icon,
+    required this.label,
+  });
 
-  final formatted = raw.replaceAllMapped(
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 6,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: Colors.white,
+              size: 15,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RatingBadge extends StatelessWidget {
+  const _RatingBadge({
+    required this.rating,
+  });
+
+  final double rating;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 5,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.star_rounded,
+              size: 17,
+              color: Colors.orange,
+            ),
+            const SizedBox(width: 3),
+            Text(
+              rating > 0
+                  ? rating.toStringAsFixed(1)
+                  : 'Mới',
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _money(double value) {
+  final raw = value.round().toString();
+
+  return '${raw.replaceAllMapped(
     RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
     (match) => '${match[1]}.',
-  );
-
-  return '$formatted đ';
+  )}đ';
 }

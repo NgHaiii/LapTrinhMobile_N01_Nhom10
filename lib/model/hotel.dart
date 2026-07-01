@@ -13,8 +13,12 @@ class HotelModel {
     this.province = '',
     this.district = '',
     this.images = const [],
+    this.amenities = const [],
     this.rating = 0,
     this.minPrice = 0,
+    this.minHourlyPrice = 0,
+    this.minFirstHourPrice = 0,
+    this.minAdditionalHourPrice = 0,
     this.createdAt,
   });
 
@@ -25,15 +29,21 @@ class HotelModel {
   final String province;
   final String district;
   final String description;
-
-  /// Ảnh bìa, giữ lại để tương thích dữ liệu cũ.
   final String imageUrl;
   final List<String> images;
-
+  final List<String> amenities;
   final String category;
   final String status;
   final double rating;
+
+  /// Giá theo đêm, giữ tương thích dữ liệu cũ.
   final double minPrice;
+
+  /// Giá giờ cũ.
+  final double minHourlyPrice;
+
+  final double minFirstHourPrice;
+  final double minAdditionalHourPrice;
   final DateTime? createdAt;
 
   String get coverImage {
@@ -42,71 +52,119 @@ class HotelModel {
   }
 
   String get fullAddress {
-    final parts = <String>[
+    return [
       address.trim(),
       district.trim(),
       province.trim(),
-    ].where((value) => value.isNotEmpty).toSet();
+    ].where((value) => value.isNotEmpty).toSet().join(', ');
+  }
 
-    return parts.join(', ');
+  double get effectiveMinHourlyPrice {
+    return effectiveMinFirstHourPrice;
+  }
+
+  double get effectiveMinFirstHourPrice {
+    if (minFirstHourPrice > 0) return minFirstHourPrice;
+    if (minHourlyPrice > 0) return minHourlyPrice;
+    return minPrice > 0 ? minPrice / 24 : 0;
+  }
+
+  double get effectiveMinAdditionalHourPrice {
+    if (minAdditionalHourPrice > 0) {
+      return minAdditionalHourPrice;
+    }
+
+    if (minHourlyPrice > 0) return minHourlyPrice;
+    return minPrice > 0 ? minPrice / 24 : 0;
   }
 
   bool get isVisible {
-    final normalizedStatus = status.trim().toLowerCase();
+    final value = status.trim().toLowerCase();
 
-    return normalizedStatus.isEmpty ||
-        normalizedStatus == 'approved' ||
-        normalizedStatus == 'active';
+    return value.isEmpty ||
+        value == 'approved' ||
+        value == 'active';
   }
 
-  factory HotelModel.fromMap(Map<String, dynamic> data, String id) {
+  factory HotelModel.fromMap(
+    Map<String, dynamic> data,
+    String id,
+  ) {
     final address = _asString(data['address']);
     final images = _readImages(data);
+    final minPrice = _asDouble(data['minPrice']);
 
-    var province = _asString(data['province'] ?? data['city']);
+    final legacyHourlyPrice = _asDouble(
+      data['minHourlyPrice'],
+      fallback: minPrice > 0 ? minPrice / 24 : 0,
+    );
 
-    var district = _asString(data['district'] ?? data['wardDistrict']);
+    var province = _asString(
+      data['province'] ?? data['city'],
+    );
+
+    var district = _asString(
+      data['district'] ?? data['wardDistrict'],
+    );
 
     if (province.isEmpty || district.isEmpty) {
-      final legacyLocation = _inferLocationFromAddress(address);
+      final location = _inferLocationFromAddress(address);
 
-      if (province.isEmpty) {
-        province = legacyLocation.province;
-      }
-
-      if (district.isEmpty) {
-        district = legacyLocation.district;
-      }
+      if (province.isEmpty) province = location.province;
+      if (district.isEmpty) district = location.district;
     }
 
     return HotelModel(
       id: id,
       providerId: _asString(data['providerId']),
-      name: _asString(data['name'], fallback: 'Khách sạn'),
+      name: _asString(
+        data['name'],
+        fallback: 'Khách sạn',
+      ),
       address: address,
       province: province,
       district: district,
       description: _asString(data['description']),
-      imageUrl: images.isNotEmpty ? images.first : _asString(data['imageUrl']),
+      imageUrl: images.isNotEmpty
+          ? images.first
+          : _asString(data['imageUrl']),
       images: images,
-      category: _asString(data['category'], fallback: 'Khách sạn'),
-      status: _asString(data['status'], fallback: 'approved').toLowerCase(),
+      amenities: _readStringList(data['amenities']),
+      category: _asString(
+        data['category'],
+        fallback: 'Khách sạn',
+      ),
+      status: _asString(
+        data['status'],
+        fallback: 'approved',
+      ).toLowerCase(),
       rating: _asDouble(data['rating']),
-      minPrice: _asDouble(data['minPrice']),
+      minPrice: minPrice,
+      minHourlyPrice: legacyHourlyPrice,
+      minFirstHourPrice: _asDouble(
+        data['minFirstHourPrice'],
+        fallback: legacyHourlyPrice,
+      ),
+      minAdditionalHourPrice: _asDouble(
+        data['minAdditionalHourPrice'],
+        fallback: legacyHourlyPrice,
+      ),
       createdAt: _asDateTime(data['createdAt']),
     );
   }
 
   Map<String, dynamic> toMap() {
     final normalizedImages = images
-        .map((url) => url.trim())
-        .where((url) => url.isNotEmpty)
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
         .toSet()
         .toList();
 
-    final cover = normalizedImages.isNotEmpty
-        ? normalizedImages.first
-        : imageUrl.trim();
+    final normalizedAmenities = amenities
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList();
 
     return {
       'providerId': providerId.trim(),
@@ -115,12 +173,19 @@ class HotelModel {
       'province': province.trim(),
       'district': district.trim(),
       'description': description.trim(),
-      'imageUrl': cover,
+      'imageUrl': normalizedImages.isNotEmpty
+          ? normalizedImages.first
+          : imageUrl.trim(),
       'images': normalizedImages,
+      'amenities': normalizedAmenities,
       'category': category.trim(),
       'status': status.trim().toLowerCase(),
       'rating': rating,
       'minPrice': minPrice,
+      'minHourlyPrice': effectiveMinHourlyPrice,
+      'minFirstHourPrice': effectiveMinFirstHourPrice,
+      'minAdditionalHourPrice':
+          effectiveMinAdditionalHourPrice,
     };
   }
 
@@ -134,10 +199,14 @@ class HotelModel {
     String? description,
     String? imageUrl,
     List<String>? images,
+    List<String>? amenities,
     String? category,
     String? status,
     double? rating,
     double? minPrice,
+    double? minHourlyPrice,
+    double? minFirstHourPrice,
+    double? minAdditionalHourPrice,
     DateTime? createdAt,
   }) {
     return HotelModel(
@@ -150,17 +219,27 @@ class HotelModel {
       description: description ?? this.description,
       imageUrl: imageUrl ?? this.imageUrl,
       images: images ?? this.images,
+      amenities: amenities ?? this.amenities,
       category: category ?? this.category,
       status: status ?? this.status,
       rating: rating ?? this.rating,
       minPrice: minPrice ?? this.minPrice,
+      minHourlyPrice: minHourlyPrice ?? this.minHourlyPrice,
+      minFirstHourPrice:
+          minFirstHourPrice ?? this.minFirstHourPrice,
+      minAdditionalHourPrice:
+          minAdditionalHourPrice ??
+          this.minAdditionalHourPrice,
       createdAt: createdAt ?? this.createdAt,
     );
   }
 }
 
 class _LegacyLocation {
-  const _LegacyLocation({this.province = '', this.district = ''});
+  const _LegacyLocation({
+    this.province = '',
+    this.district = '',
+  });
 
   final String province;
   final String district;
@@ -179,29 +258,33 @@ _LegacyLocation _inferLocationFromAddress(String address) {
 
   return _LegacyLocation(
     province: parts.last,
-    district: parts.length >= 3 ? parts[parts.length - 2] : '',
+    district: parts.length >= 3
+        ? parts[parts.length - 2]
+        : '',
   );
 }
 
 List<String> _readImages(Map<String, dynamic> data) {
-  final value = data['images'];
+  final images = _readStringList(data['images']);
+  final legacyImage = _asString(data['imageUrl']);
 
-  final images = value is List
-      ? value
-            .whereType<String>()
-            .map((url) => url.trim())
-            .where((url) => url.isNotEmpty)
-            .toSet()
-            .toList()
-      : <String>[];
-
-  final oldImageUrl = _asString(data['imageUrl']);
-
-  if (oldImageUrl.isNotEmpty && !images.contains(oldImageUrl)) {
-    images.insert(0, oldImageUrl);
+  if (legacyImage.isNotEmpty &&
+      !images.contains(legacyImage)) {
+    images.insert(0, legacyImage);
   }
 
   return images;
+}
+
+List<String> _readStringList(dynamic value) {
+  if (value is! List) return [];
+
+  return value
+      .whereType<String>()
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty)
+      .toSet()
+      .toList();
 }
 
 String _asString(dynamic value, {String fallback = ''}) {
@@ -235,9 +318,7 @@ DateTime? _asDateTime(dynamic value) {
     return DateTime.fromMillisecondsSinceEpoch(value);
   }
 
-  if (value is String) {
-    return DateTime.tryParse(value);
-  }
+  if (value is String) return DateTime.tryParse(value);
 
   return null;
 }

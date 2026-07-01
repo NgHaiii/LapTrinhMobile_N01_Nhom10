@@ -2,48 +2,54 @@ import 'package:flutter/material.dart';
 
 import '../../model/booking.dart';
 import '../../services/customer_service.dart';
+import 'payment_screen.dart';
 import 'widgets/customer_empty_state.dart';
+import 'widgets/payment_countdown.dart';
 
 class MyBookingsScreen extends StatefulWidget {
-  const MyBookingsScreen({super.key, required this.service});
+  const MyBookingsScreen({
+    super.key,
+    required this.service,
+  });
 
   final CustomerService service;
 
   @override
-  State<MyBookingsScreen> createState() => _MyBookingsScreenState();
+  State<MyBookingsScreen> createState() =>
+      _MyBookingsScreenState();
 }
 
-class _MyBookingsScreenState extends State<MyBookingsScreen> {
+class _MyBookingsScreenState
+    extends State<MyBookingsScreen> {
   String _status = 'all';
   String? _cancellingId;
 
-  Future<void> _cancelBooking(BookingModel booking) async {
+  Future<void> _cancel(
+    BookingModel booking,
+  ) async {
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          icon: const Icon(Icons.cancel_outlined),
-          title: const Text('Hủy đơn đặt phòng?'),
-          content: Text(
-            'Bạn có chắc muốn hủy đơn tại '
-            '"${booking.hotelName}" không?',
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.cancel_outlined),
+        title: const Text('Hủy đơn đặt phòng?'),
+        content: Text(
+          'Bạn có chắc muốn hủy đơn tại '
+          '"${booking.hotelName}"?\n\n'
+          'Khung giờ sẽ được mở lại cho người khác.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, false),
+            child: const Text('Đóng'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext, false);
-              },
-              child: const Text('Không'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(dialogContext, true);
-              },
-              child: const Text('Hủy đơn'),
-            ),
-          ],
-        );
-      },
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, true),
+            child: const Text('Hủy đơn'),
+          ),
+        ],
+      ),
     );
 
     if (!mounted || accepted != true) return;
@@ -54,11 +60,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       await widget.service.cancelBooking(booking);
 
       if (!mounted) return;
-
-      _showMessage('Đã hủy đơn đặt phòng.');
+      _message('Đã hủy đơn đặt phòng.');
     } catch (error) {
       if (!mounted) return;
-      _showMessage(_cleanError(error));
+      _message(_cleanError(error));
     } finally {
       if (mounted) {
         setState(() => _cancellingId = null);
@@ -66,24 +71,42 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     }
   }
 
-  void _showMessage(String message) {
-    if (!mounted) return;
+  void _openPayment(
+    BookingModel booking,
+  ) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PaymentScreen(
+          service: widget.service,
+          booking: booking,
+        ),
+      ),
+    );
+  }
 
+  void _message(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showSnackBar(
+        SnackBar(content: Text(message)),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Đơn đặt phòng')),
+      appBar: AppBar(
+        title: const Text('Đơn đặt phòng'),
+      ),
       body: StreamBuilder<List<BookingModel>>(
         stream: widget.service.watchMyBookings(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting &&
+          if (snapshot.connectionState ==
+                  ConnectionState.waiting &&
               !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
           }
 
           if (snapshot.hasError) {
@@ -96,62 +119,76 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
           final allBookings = snapshot.data ?? [];
 
-          final bookings = _status == 'all'
-              ? allBookings
-              : allBookings.where((booking) {
-                  return booking.status == _status;
-                }).toList();
+          final bookings = allBookings.where((booking) {
+            return _status == 'all' ||
+                _matchesFilter(booking, _status);
+          }).toList();
 
           return Column(
             children: [
               SizedBox(
                 height: 58,
                 child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  padding:
+                      const EdgeInsets.symmetric(
+                        horizontal: 20,
+                      ),
                   scrollDirection: Axis.horizontal,
                   children: [
-                    _StatusFilter(
-                      label: 'Tất cả',
-                      selected: _status == 'all',
-                      onTap: () {
-                        setState(() => _status = 'all');
-                      },
+                    _filter(
+                      'all',
+                      'Tất cả',
+                      allBookings.length,
                     ),
-                    _StatusFilter(
-                      label: 'Chờ xác nhận',
-                      selected: _status == BookingStatus.pending,
-                      onTap: () {
-                        setState(() {
-                          _status = BookingStatus.pending;
-                        });
-                      },
+                    _filter(
+                      'pending',
+                      'Chờ duyệt',
+                      _count(
+                        allBookings,
+                        'pending',
+                      ),
                     ),
-                    _StatusFilter(
-                      label: 'Đã xác nhận',
-                      selected: _status == BookingStatus.confirmed,
-                      onTap: () {
-                        setState(() {
-                          _status = BookingStatus.confirmed;
-                        });
-                      },
+                    _filter(
+                      BookingStatus.awaitingPayment,
+                      'Chờ thanh toán',
+                      _count(
+                        allBookings,
+                        BookingStatus
+                            .awaitingPayment,
+                      ),
                     ),
-                    _StatusFilter(
-                      label: 'Hoàn thành',
-                      selected: _status == BookingStatus.completed,
-                      onTap: () {
-                        setState(() {
-                          _status = BookingStatus.completed;
-                        });
-                      },
+                    _filter(
+                      BookingStatus.paymentReview,
+                      'Đang kiểm tra',
+                      _count(
+                        allBookings,
+                        BookingStatus
+                            .paymentReview,
+                      ),
                     ),
-                    _StatusFilter(
-                      label: 'Đã hủy',
-                      selected: _status == BookingStatus.cancelled,
-                      onTap: () {
-                        setState(() {
-                          _status = BookingStatus.cancelled;
-                        });
-                      },
+                    _filter(
+                      BookingStatus.confirmed,
+                      'Đã xác nhận',
+                      _count(
+                        allBookings,
+                        BookingStatus.confirmed,
+                      ),
+                    ),
+                    _filter(
+                      BookingStatus.completed,
+                      'Hoàn thành',
+                      _count(
+                        allBookings,
+                        BookingStatus.completed,
+                      ),
+                    ),
+                    _filter(
+                      'ended',
+                      'Đã kết thúc',
+                      _count(
+                        allBookings,
+                        'ended',
+                      ),
                     ),
                   ],
                 ),
@@ -159,29 +196,47 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
               Expanded(
                 child: bookings.isEmpty
                     ? const CustomerEmptyState(
-                        icon: Icons.event_busy_outlined,
-                        title: 'Không có đơn đặt phòng',
-                        message: 'Các đơn phù hợp sẽ xuất hiện tại đây.',
+                        icon:
+                            Icons.event_busy_outlined,
+                        title:
+                            'Không có đơn phù hợp',
+                        message:
+                            'Các đơn đặt phòng sẽ xuất hiện tại đây.',
                       )
                     : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+                        padding:
+                            const EdgeInsets.fromLTRB(
+                              20,
+                              4,
+                              20,
+                              32,
+                            ),
                         itemCount: bookings.length,
-                        separatorBuilder: (_, __) {
-                          return const SizedBox(height: 10);
-                        },
-                        itemBuilder: (context, index) {
-                          final booking = bookings[index];
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 10),
+                        itemBuilder:
+                            (context, index) {
+                              final booking =
+                                  bookings[index];
 
-                          return _BookingCard(
-                            booking: booking,
-                            cancelling: _cancellingId == booking.id,
-                            onCancel: booking.canCustomerCancel
-                                ? () {
-                                    _cancelBooking(booking);
-                                  }
-                                : null,
-                          );
-                        },
+                              return _BookingCard(
+                                booking: booking,
+                                cancelling:
+                                    _cancellingId ==
+                                    booking.id,
+                                onCancel: booking
+                                        .canCustomerCancel
+                                    ? () =>
+                                          _cancel(booking)
+                                    : null,
+                                onPay: booking
+                                        .canCustomerPay
+                                    ? () => _openPayment(
+                                        booking,
+                                      )
+                                    : null,
+                              );
+                            },
                       ),
               ),
             ],
@@ -190,29 +245,38 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       ),
     );
   }
-}
 
-class _StatusFilter extends StatelessWidget {
-  const _StatusFilter({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _filter(
+    String value,
+    String label,
+    int count,
+  ) {
     return Padding(
-      padding: const EdgeInsets.only(right: 8, top: 10, bottom: 8),
+      padding: const EdgeInsets.only(
+        right: 8,
+        top: 10,
+        bottom: 8,
+      ),
       child: ChoiceChip(
-        label: Text(label),
-        selected: selected,
-        onSelected: (_) => onTap(),
+        label: Text('$label · $count'),
+        selected: _status == value,
+        onSelected: (_) {
+          setState(() => _status = value);
+        },
       ),
     );
+  }
+
+  int _count(
+    List<BookingModel> bookings,
+    String filter,
+  ) {
+    return bookings
+        .where(
+          (booking) =>
+              _matchesFilter(booking, filter),
+        )
+        .length;
   }
 }
 
@@ -221,158 +285,321 @@ class _BookingCard extends StatelessWidget {
     required this.booking,
     required this.cancelling,
     this.onCancel,
+    this.onPay,
   });
 
   final BookingModel booking;
   final bool cancelling;
   final VoidCallback? onCancel;
+  final VoidCallback? onPay;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final statusColor = _statusColor(booking.status);
+    final overdue = booking.isPaymentOverdue &&
+        booking.status ==
+            BookingStatus.awaitingPayment;
 
     return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CircleAvatar(
-                  backgroundColor: colors.primaryContainer,
-                  child: Icon(
-                    Icons.hotel_outlined,
-                    color: colors.onPrimaryContainer,
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.fromLTRB(
+          14,
+          8,
+          10,
+          8,
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(
+          14,
+          0,
+          14,
+          15,
+        ),
+        leading: CircleAvatar(
+          backgroundColor:
+              colors.primaryContainer,
+          foregroundColor:
+              colors.onPrimaryContainer,
+          child: const Icon(
+            Icons.hotel_outlined,
+          ),
+        ),
+        title: Text(
+          booking.hotelName,
+          style: const TextStyle(
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        subtitle: Text(
+          '${booking.roomType} · '
+          'Phòng ${booking.roomNumber}\n'
+          '${_dateTime(booking.checkIn)}',
+        ),
+        trailing: ConstrainedBox(
+          constraints:
+              const BoxConstraints(maxWidth: 105),
+          child: _StatusBadge(
+            label: overdue
+                ? 'Quá hạn'
+                : booking.statusLabel,
+            color: overdue
+                ? colors.error
+                : _statusColor(
+                    booking.status,
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        booking.hotelName,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${booking.roomType} · '
-                        'Phòng ${booking.roomNumber}',
-                      ),
-                    ],
-                  ),
-                ),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(7),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 5,
-                    ),
-                    child: Text(
-                      booking.statusLabel,
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+          ),
+        ),
+        children: [
+          const Divider(),
+          _InfoRow(
+            icon: Icons.login_rounded,
+            label: 'Nhận phòng',
+            value: _dateTime(booking.checkIn),
+          ),
+          _InfoRow(
+            icon: Icons.logout_rounded,
+            label: 'Trả phòng',
+            value: _dateTime(booking.checkOut),
+          ),
+          _InfoRow(
+            icon: Icons.groups_outlined,
+            label: 'Số khách',
+            value: '${booking.guests} khách',
+          ),
+          _InfoRow(
+            icon: booking.usesCombo
+                ? Icons.local_offer_outlined
+                : Icons.schedule_outlined,
+            label: 'Gói giá',
+            value: booking.usesCombo
+                ? booking.ratePlanName
+                : 'Tính theo giờ',
+          ),
+          _InfoRow(
+            icon: Icons.timer_outlined,
+            label: 'Thời lượng',
+            value: booking.durationLabel,
+          ),
+          if (booking.specialRequests.isNotEmpty)
+            _InfoRow(
+              icon: Icons.notes_outlined,
+              label: 'Yêu cầu',
+              value: booking.specialRequests,
             ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                const Icon(Icons.calendar_today_outlined, size: 17),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    '${_formatDate(booking.checkIn)} - '
-                    '${_formatDate(booking.checkOut)}',
-                  ),
-                ),
-              ],
-            ),
+          if (booking.status ==
+                  BookingStatus.awaitingPayment &&
+              booking.paymentDeadline != null) ...[
             const SizedBox(height: 7),
-            Row(
-              children: [
-                const Icon(Icons.group_outlined, size: 17),
-                const SizedBox(width: 6),
-                Text(
-                  '${booking.guests} khách · '
-                  '${booking.nights} đêm',
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _formatMoney(booking.totalAmount),
-                    style: TextStyle(
-                      color: colors.primary,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                if (onCancel != null)
-                  OutlinedButton.icon(
-                    onPressed: cancelling ? null : onCancel,
-                    icon: cancelling
-                        ? const SizedBox.square(
-                            dimension: 17,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.cancel_outlined),
-                    label: const Text('Hủy đơn'),
-                  ),
-              ],
+            CustomerPaymentCountdown(
+              deadline: booking.paymentDeadline!,
             ),
           ],
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color:
+                  colors.surfaceContainerLow,
+              borderRadius:
+                  BorderRadius.circular(8),
+              border: Border.all(
+                color: colors.outlineVariant,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Tổng thanh toán',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Text(
+                  _money(booking.totalAmount),
+                  style: TextStyle(
+                    color: colors.primary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (onPay != null)
+                FilledButton.icon(
+                  onPressed: onPay,
+                  icon: const Icon(
+                    Icons.qr_code_2_rounded,
+                  ),
+                  label:
+                      const Text('Thanh toán'),
+                ),
+              if (onCancel != null)
+                OutlinedButton.icon(
+                  onPressed:
+                      cancelling ? null : onCancel,
+                  icon: cancelling
+                      ? const SizedBox.square(
+                          dimension: 17,
+                          child:
+                              CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                        )
+                      : const Icon(
+                          Icons.cancel_outlined,
+                        ),
+                  label: const Text('Hủy đơn'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 7,
+          vertical: 5,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: color,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+          ),
         ),
       ),
     );
   }
 }
 
+bool _matchesFilter(
+  BookingModel booking,
+  String filter,
+) {
+  if (filter == 'pending') {
+    return booking.status ==
+            BookingStatus.pending ||
+        booking.status ==
+            BookingStatus.pendingProvider;
+  }
+
+  if (filter == 'ended') {
+    return booking.isFinished;
+  }
+
+  return booking.status == filter;
+}
+
 Color _statusColor(String status) {
   return switch (status) {
+    BookingStatus.awaitingPayment => Colors.blue,
+    BookingStatus.paymentReview => Colors.indigo,
     BookingStatus.confirmed => Colors.green,
-    BookingStatus.completed => Colors.blue,
+    BookingStatus.completed => Colors.teal,
     BookingStatus.cancelled => Colors.grey,
-    BookingStatus.rejected => Colors.red,
+    BookingStatus.rejected ||
+    BookingStatus.expired => Colors.red,
     _ => Colors.orange,
   };
 }
 
-String _formatDate(DateTime date) {
-  return '${date.day.toString().padLeft(2, '0')}/'
-      '${date.month.toString().padLeft(2, '0')}/'
-      '${date.year}';
+String _dateTime(DateTime value) {
+  final day = value.day.toString().padLeft(2, '0');
+  final month =
+      value.month.toString().padLeft(2, '0');
+  final hour =
+      value.hour.toString().padLeft(2, '0');
+  final minute =
+      value.minute.toString().padLeft(2, '0');
+
+  return '$day/$month/${value.year} '
+      '$hour:$minute';
 }
 
-String _formatMoney(double value) {
-  final raw = value.toStringAsFixed(0);
+String _money(double value) {
+  final raw = value.round().toString();
 
-  final formatted = raw.replaceAllMapped(
+  return '${raw.replaceAllMapped(
     RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
     (match) => '${match[1]}.',
-  );
-
-  return '$formatted đ';
+  )}đ';
 }
 
 String _cleanError(Object? error) {

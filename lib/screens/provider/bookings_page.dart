@@ -454,12 +454,16 @@ class _BookingCard extends StatelessWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
-        tilePadding: const EdgeInsets.fromLTRB(
-          14,
-          8,
-          10,
-          8,
-        ),
+  key: PageStorageKey<String>(
+    'provider_booking_${booking.id}',
+  ),
+  maintainState: true,
+  tilePadding: const EdgeInsets.fromLTRB(
+    14,
+    8,
+    10,
+    8,
+  ),
         childrenPadding: const EdgeInsets.fromLTRB(
           14,
           0,

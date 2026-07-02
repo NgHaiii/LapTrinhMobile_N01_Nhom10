@@ -1,0 +1,89 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "providerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "rooms",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "hotelId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "roomNumber",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "roomSchedules",
+      "fieldPath": "reservations",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "rooms",
+      "fieldPath": "ratePlans",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "rooms",
+      "fieldPath": "images",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "rooms",
+      "fieldPath": "amenities",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "hotels",
+      "fieldPath": "images",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "hotels",
+      "fieldPath": "amenities",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "bookings",
+      "fieldPath": "pricingBreakdown",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "bookings",
+      "fieldPath": "pricingRules",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "bookings",
+      "fieldPath": "scheduleIds",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "commissionInvoices",
+      "fieldPath": "bookingIds",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "holidayCalendars",
+      "fieldPath": "holidays",
+      "indexes": []
+    }
+  ]
+}

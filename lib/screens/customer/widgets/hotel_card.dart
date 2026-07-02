@@ -36,26 +36,22 @@ class CustomerHotelCard extends StatelessWidget {
                     fallbackIcon:
                         Icons.apartment_outlined,
                   ),
+
+                  // Chỉ giữ loại hình lưu trú trên ảnh.
                   Positioned(
                     left: 12,
                     top: 12,
-                    child: _Badge(
+                    child: _ImageBadge(
                       icon: Icons.hotel_outlined,
                       label: hotel.category,
                     ),
                   ),
-                  Positioned(
-                    right: 12,
-                    top: 12,
-                    child: _RatingBadge(
-                      rating: hotel.rating,
-                    ),
-                  ),
+
                   if (hotel.images.length > 1)
                     Positioned(
                       right: 12,
                       bottom: 12,
-                      child: _Badge(
+                      child: _ImageBadge(
                         icon:
                             Icons.photo_library_outlined,
                         label:
@@ -71,16 +67,31 @@ class CustomerHotelCard extends StatelessWidget {
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    hotel.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(
-                          fontWeight: FontWeight.w900,
+                  // Ngôi sao chuyển xuống cạnh tên.
+                  Row(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          hotel.name,
+                          maxLines: 2,
+                          overflow:
+                              TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(
+                                fontWeight:
+                                    FontWeight.w900,
+                              ),
                         ),
+                      ),
+                      const SizedBox(width: 10),
+                      _RatingBadge(
+                        rating: hotel.rating,
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 7),
                   Row(
@@ -207,12 +218,12 @@ class CustomerHotelCard extends StatelessWidget {
   }
 }
 
-class _AmenityChip extends StatelessWidget {
-  const _AmenityChip({
-    required this.label,
+class _RatingBadge extends StatelessWidget {
+  const _RatingBadge({
+    required this.rating,
   });
 
-  final String label;
+  final double rating;
 
   @override
   Widget build(BuildContext context) {
@@ -220,8 +231,8 @@ class _AmenityChip extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
+        color: colors.tertiaryContainer,
+        borderRadius: BorderRadius.circular(7),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
@@ -232,16 +243,19 @@ class _AmenityChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.check_circle_outline,
-              size: 14,
-              color: colors.primary,
+              Icons.star_rounded,
+              size: 17,
+              color: colors.onTertiaryContainer,
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 3),
             Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
+              rating > 0
+                  ? rating.toStringAsFixed(1)
+                  : 'Mới',
+              style: TextStyle(
+                color: colors.onTertiaryContainer,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
               ),
             ),
           ],
@@ -251,8 +265,8 @@ class _AmenityChip extends StatelessWidget {
   }
 }
 
-class _Badge extends StatelessWidget {
-  const _Badge({
+class _ImageBadge extends StatelessWidget {
+  const _ImageBadge({
     required this.icon,
     required this.label,
   });
@@ -296,19 +310,21 @@ class _Badge extends StatelessWidget {
   }
 }
 
-class _RatingBadge extends StatelessWidget {
-  const _RatingBadge({
-    required this.rating,
+class _AmenityChip extends StatelessWidget {
+  const _AmenityChip({
+    required this.label,
   });
 
-  final double rating;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(7),
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
@@ -318,18 +334,17 @@ class _RatingBadge extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.star_rounded,
-              size: 17,
-              color: Colors.orange,
+            Icon(
+              Icons.check_circle_outline,
+              size: 14,
+              color: colors.primary,
             ),
-            const SizedBox(width: 3),
+            const SizedBox(width: 4),
             Text(
-              rating > 0
-                  ? rating.toStringAsFixed(1)
-                  : 'Mới',
+              label,
               style: const TextStyle(
-                fontWeight: FontWeight.w900,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],

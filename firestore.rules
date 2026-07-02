@@ -438,11 +438,11 @@ service cloud.firestore {
             == roomHolidayPercent();
       }
 
-      function validWholeHour(timestamp) {
-        return timestamp.minutes() == 0
-          && timestamp.seconds() == 0
-          && timestamp.nanos() == 0;
-      }
+      function validWholeHour(value) {
+  return value.minutes() == 0
+    && value.seconds() == 0
+    && value.nanos() == 0;
+}
 
       function validBookingTime() {
         return request.resource.data.checkIn is timestamp

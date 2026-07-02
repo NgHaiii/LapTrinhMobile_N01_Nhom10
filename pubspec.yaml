@@ -24,6 +24,8 @@ dependencies:
   provider: ^6.1.2              # Quản lý trạng thái ứng dụng (State Management)
   image_picker: ^1.2.2
   http: ^1.6.0
+  flutter_localizations:
+    sdk: flutter
 
 dev_dependencies:
   flutter_test:

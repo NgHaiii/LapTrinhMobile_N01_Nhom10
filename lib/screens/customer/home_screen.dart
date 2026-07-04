@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import '../../model/hotel.dart';
 import '../../services/auth.dart';
 import '../../services/customer_service.dart';
+import '../../services/recommendation_service.dart';
 import 'hotel_details_screen.dart';
 import 'my_bookings_screen.dart';
 import 'provider_application_screen.dart';
 import 'widgets/customer_empty_state.dart';
 import 'widgets/hotel_card.dart';
+import 'widgets/recommended_hotels_section.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({
@@ -27,9 +29,11 @@ class _CustomerHomeScreenState
   final _searchController = TextEditingController();
 
   late final CustomerService _service;
+  late final RecommendationService
+      _recommendationService;
   late final Stream<List<HotelModel>> _hotelsStream;
 
-  String _searchText = '';
+  String _search = '';
   String _category = 'Tất cả';
   String? _province;
   String? _district;
@@ -45,293 +49,19 @@ class _CustomerHomeScreenState
     'Nhà nghỉ',
   ];
 
+  bool get _showRecommendations {
+    return _search.trim().isEmpty &&
+        _category == 'Tất cả';
+  }
+
   @override
   void initState() {
     super.initState();
 
     _service = widget.service ?? CustomerService();
+    _recommendationService =
+        RecommendationService();
     _hotelsStream = _service.watchHotels();
-  }
-
-  Future<void> _selectGuests() async {
-    var value = _guests;
-
-    final result = await showModalBottomSheet<int>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  24,
-                  4,
-                  24,
-                  24,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Số lượng khách',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(
-                            fontWeight: FontWeight.w900,
-                          ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment:
-                          MainAxisAlignment.center,
-                      children: [
-                        IconButton.filledTonal(
-                          onPressed: value > 1
-                              ? () => setSheetState(
-                                  () => value--,
-                                )
-                              : null,
-                          icon: const Icon(Icons.remove),
-                        ),
-                        SizedBox(
-                          width: 120,
-                          child: Text(
-                            '$value khách',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium,
-                          ),
-                        ),
-                        IconButton.filled(
-                          onPressed: value < 30
-                              ? () => setSheetState(
-                                  () => value++,
-                                )
-                              : null,
-                          icon: const Icon(Icons.add),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: () => Navigator.pop(
-                          sheetContext,
-                          value,
-                        ),
-                        child: const Text('Xác nhận'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    if (!mounted || result == null) return;
-    setState(() => _guests = result);
-  }
-
-  Future<void> _selectLocation(
-    List<HotelModel> hotels,
-  ) async {
-    final locations = <String, Set<String>>{};
-
-    for (final hotel in hotels) {
-      final province = hotel.province.trim();
-      final district = hotel.district.trim();
-
-      if (province.isEmpty) continue;
-
-      locations.putIfAbsent(
-        province,
-        () => <String>{},
-      );
-
-      if (district.isNotEmpty) {
-        locations[province]!.add(district);
-      }
-    }
-
-    final provinces = locations.keys.toList()..sort();
-
-    if (provinces.isEmpty) {
-      _message(
-        'Các khách sạn chưa cập nhật tỉnh/thành phố.',
-      );
-      return;
-    }
-
-    var selectedProvince = _province;
-    var selectedDistrict = _district;
-
-    final result =
-        await showModalBottomSheet<_LocationResult>(
-          context: context,
-          isScrollControlled: true,
-          showDragHandle: true,
-          builder: (sheetContext) {
-            return StatefulBuilder(
-              builder: (context, setSheetState) {
-                final districts =
-                    selectedProvince == null
-                    ? <String>[]
-                    : (locations[selectedProvince]
-                              ?.toList() ??
-                          [])
-                      ..sort();
-
-                return SafeArea(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      20,
-                      4,
-                      20,
-                      24 +
-                          MediaQuery.viewInsetsOf(
-                            sheetContext,
-                          ).bottom,
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Tìm theo khu vực',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleLarge
-                              ?.copyWith(
-                                fontWeight:
-                                    FontWeight.w900,
-                              ),
-                        ),
-                        const SizedBox(height: 18),
-                        DropdownButtonFormField<String>(
-                          initialValue:
-                              provinces.contains(
-                                selectedProvince,
-                              )
-                              ? selectedProvince
-                              : null,
-                          isExpanded: true,
-                          decoration:
-                              const InputDecoration(
-                                labelText:
-                                    'Tỉnh/Thành phố',
-                                prefixIcon: Icon(
-                                  Icons
-                                      .location_city_outlined,
-                                ),
-                              ),
-                          items: provinces.map((value) {
-                            return DropdownMenuItem(
-                              value: value,
-                              child: Text(value),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setSheetState(() {
-                              selectedProvince = value;
-                              selectedDistrict = null;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          key: ValueKey(
-                            selectedProvince,
-                          ),
-                          initialValue: districts.contains(
-                            selectedDistrict,
-                          )
-                              ? selectedDistrict
-                              : null,
-                          isExpanded: true,
-                          decoration:
-                              const InputDecoration(
-                                labelText:
-                                    'Quận/Huyện',
-                                prefixIcon: Icon(
-                                  Icons.map_outlined,
-                                ),
-                              ),
-                          items: districts.map((value) {
-                            return DropdownMenuItem(
-                              value: value,
-                              child: Text(value),
-                            );
-                          }).toList(),
-                          onChanged:
-                              selectedProvince == null
-                              ? null
-                              : (value) {
-                                  setSheetState(
-                                    () =>
-                                        selectedDistrict =
-                                            value,
-                                  );
-                                },
-                        ),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () =>
-                                    Navigator.pop(
-                                      sheetContext,
-                                      const _LocationResult(),
-                                    ),
-                                child: const Text(
-                                  'Xóa khu vực',
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: FilledButton(
-                                onPressed:
-                                    selectedProvince == null
-                                    ? null
-                                    : () =>
-                                          Navigator.pop(
-                                            sheetContext,
-                                            _LocationResult(
-                                              province:
-                                                  selectedProvince,
-                                              district:
-                                                  selectedDistrict,
-                                            ),
-                                          ),
-                                child: const Text(
-                                  'Áp dụng',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-
-    if (!mounted || result == null) return;
-
-    setState(() {
-      _province = result.province;
-      _district = result.district;
-    });
   }
 
   void _openHotel(HotelModel hotel) {
@@ -378,27 +108,297 @@ class _CustomerHomeScreenState
           TextButton(
             onPressed: () =>
                 Navigator.pop(dialogContext, false),
-            child: const Text('Đóng'),
+            child: const Text('Hủy'),
           ),
-          FilledButton(
+          FilledButton.icon(
             onPressed: () =>
                 Navigator.pop(dialogContext, true),
-            child: const Text('Đăng xuất'),
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Đăng xuất'),
           ),
         ],
       ),
     );
 
-    if (accepted == true) {
-      await AuthService().signOut();
+    if (!mounted || accepted != true) return;
+    await AuthService().signOut();
+  }
+
+  Future<void> _selectGuests() async {
+    var guests = _guests;
+
+    final result = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  24,
+                  4,
+                  24,
+                  24,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Số lượng khách',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleLarge
+                          ?.copyWith(
+                            fontWeight:
+                                FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment:
+                          MainAxisAlignment.center,
+                      children: [
+                        IconButton.filledTonal(
+                          onPressed: guests > 1
+                              ? () => setSheetState(
+                                  () => guests--,
+                                )
+                              : null,
+                          icon: const Icon(Icons.remove),
+                        ),
+                        SizedBox(
+                          width: 120,
+                          child: Text(
+                            '$guests khách',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight:
+                                  FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        IconButton.filled(
+                          onPressed: guests < 30
+                              ? () => setSheetState(
+                                  () => guests++,
+                                )
+                              : null,
+                          icon: const Icon(Icons.add),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () =>
+                            Navigator.pop(
+                          sheetContext,
+                          guests,
+                        ),
+                        child: const Text('Xác nhận'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted || result == null) return;
+
+    setState(() => _guests = result);
+  }
+
+  Future<void> _selectLocation(
+    List<HotelModel> hotels,
+  ) async {
+    final locations = <String, Set<String>>{};
+
+    for (final hotel in hotels) {
+      final province = hotel.province.trim();
+      final district = hotel.district.trim();
+
+      if (province.isEmpty) continue;
+
+      locations.putIfAbsent(
+        province,
+        () => <String>{},
+      );
+
+      if (district.isNotEmpty) {
+        locations[province]!.add(district);
+      }
     }
+
+    final provinces = locations.keys.toList()
+      ..sort();
+
+    if (provinces.isEmpty) {
+      _message(
+        'Các khách sạn chưa cập nhật tỉnh/thành phố.',
+      );
+      return;
+    }
+
+    var province = _province;
+    var district = _district;
+
+    final result =
+        await showModalBottomSheet<_LocationResult>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final districts = province == null
+                ? <String>[]
+                : (locations[province]?.toList() ??
+                    [])
+              ..sort();
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  4,
+                  20,
+                  24 +
+                      MediaQuery.viewInsetsOf(
+                        sheetContext,
+                      ).bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Tìm theo khu vực',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleLarge
+                          ?.copyWith(
+                            fontWeight:
+                                FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 18),
+                    DropdownButtonFormField<String>(
+                      initialValue:
+                          provinces.contains(province)
+                          ? province
+                          : null,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Tỉnh/Thành phố',
+                        prefixIcon: Icon(
+                          Icons.location_city_outlined,
+                        ),
+                      ),
+                      items: provinces
+                          .map(
+                            (value) =>
+                                DropdownMenuItem(
+                              value: value,
+                              child: Text(value),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        setSheetState(() {
+                          province = value;
+                          district = null;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(province),
+                      initialValue:
+                          districts.contains(district)
+                          ? district
+                          : null,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Quận/Huyện',
+                        prefixIcon:
+                            Icon(Icons.map_outlined),
+                      ),
+                      items: districts
+                          .map(
+                            (value) =>
+                                DropdownMenuItem(
+                              value: value,
+                              child: Text(value),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: province == null
+                          ? null
+                          : (value) {
+                              setSheetState(
+                                () => district = value,
+                              );
+                            },
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () =>
+                                Navigator.pop(
+                              sheetContext,
+                              const _LocationResult(),
+                            ),
+                            child:
+                                const Text('Xóa khu vực'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: province == null
+                                ? null
+                                : () => Navigator.pop(
+                                    sheetContext,
+                                    _LocationResult(
+                                      province: province,
+                                      district: district,
+                                    ),
+                                  ),
+                            child: const Text('Áp dụng'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted || result == null) return;
+
+    setState(() {
+      _province = result.province;
+      _district = result.district;
+    });
   }
 
   void _clearFilters() {
     _searchController.clear();
 
     setState(() {
-      _searchText = '';
+      _search = '';
       _category = 'Tất cả';
       _province = null;
       _district = null;
@@ -406,6 +406,8 @@ class _CustomerHomeScreenState
   }
 
   void _message(String message) {
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -448,13 +450,9 @@ class _CustomerHomeScreenState
             onSelected: (value) {
               if (value == 'bookings') {
                 _openBookings();
-              }
-
-              if (value == 'provider') {
+              } else if (value == 'provider') {
                 _openProviderApplication();
-              }
-
-              if (value == 'logout') {
+              } else if (value == 'logout') {
                 _logout();
               }
             },
@@ -462,32 +460,32 @@ class _CustomerHomeScreenState
               PopupMenuItem(
                 value: 'bookings',
                 child: ListTile(
+                  contentPadding: EdgeInsets.zero,
                   leading: Icon(
                     Icons.event_note_outlined,
                   ),
                   title: Text('Đơn đặt phòng'),
-                  contentPadding: EdgeInsets.zero,
                 ),
               ),
               PopupMenuItem(
                 value: 'provider',
                 child: ListTile(
+                  contentPadding: EdgeInsets.zero,
                   leading: Icon(
                     Icons.storefront_outlined,
                   ),
                   title: Text(
                     'Trở thành nhà cung cấp',
                   ),
-                  contentPadding: EdgeInsets.zero,
                 ),
               ),
               PopupMenuItem(
                 value: 'logout',
                 child: ListTile(
+                  contentPadding: EdgeInsets.zero,
                   leading:
                       Icon(Icons.logout_rounded),
                   title: Text('Đăng xuất'),
-                  contentPadding: EdgeInsets.zero,
                 ),
               ),
             ],
@@ -515,18 +513,19 @@ class _CustomerHomeScreenState
           }
 
           final allHotels = snapshot.data ?? [];
-          final keyword = _normalize(_searchText);
+          final keyword = _normalize(_search);
 
-          final hotels = allHotels.where((hotel) {
-            final searchable = _normalize(
-              '${hotel.name} ${hotel.address} '
-              '${hotel.district} ${hotel.province} '
+          final filteredHotels =
+              allHotels.where((hotel) {
+            final source = _normalize(
+              '${hotel.name} '
+              '${hotel.fullAddress} '
               '${hotel.category}',
             );
 
-            final matchesKeyword =
+            final matchesSearch =
                 keyword.isEmpty ||
-                searchable.contains(keyword);
+                source.contains(keyword);
 
             final matchesCategory =
                 _category == 'Tất cả' ||
@@ -543,7 +542,7 @@ class _CustomerHomeScreenState
                 _normalize(hotel.district) ==
                     _normalize(_district!);
 
-            return matchesKeyword &&
+            return matchesSearch &&
                 matchesCategory &&
                 matchesProvince &&
                 matchesDistrict;
@@ -581,20 +580,16 @@ class _CustomerHomeScreenState
                 leading:
                     const Icon(Icons.search_rounded),
                 onChanged: (value) {
-                  setState(
-                    () => _searchText = value,
-                  );
+                  setState(() => _search = value);
                 },
                 trailing: [
-                  if (_searchText.isNotEmpty)
+                  if (_search.isNotEmpty)
                     IconButton(
                       tooltip: 'Xóa tìm kiếm',
                       onPressed: () {
                         _searchController.clear();
 
-                        setState(
-                          () => _searchText = '',
-                        );
+                        setState(() => _search = '');
                       },
                       icon: const Icon(
                         Icons.close_rounded,
@@ -609,8 +604,8 @@ class _CustomerHomeScreenState
                 value: _province == null
                     ? 'Tất cả tỉnh/thành phố'
                     : _district == null
-                    ? _province!
-                    : '$_district, $_province',
+                        ? _province!
+                        : '$_district, $_province',
                 onTap: () =>
                     _selectLocation(allHotels),
               ),
@@ -621,14 +616,16 @@ class _CustomerHomeScreenState
                 value: '$_guests khách',
                 onTap: _selectGuests,
               ),
-              const SizedBox(height: 15),
+              const SizedBox(height: 14),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children: _categories.map((category) {
+                  children:
+                      _categories.map((category) {
                     return Padding(
-                      padding:
-                          const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.only(
+                        right: 8,
+                      ),
                       child: ChoiceChip(
                         label: Text(category),
                         selected:
@@ -643,48 +640,74 @@ class _CustomerHomeScreenState
                   }).toList(),
                 ),
               ),
-              const SizedBox(height: 22),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Nơi lưu trú',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(
-                            fontWeight:
-                                FontWeight.w900,
-                          ),
-                    ),
-                  ),
-                  Text('${hotels.length} kết quả'),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (hotels.isEmpty)
-                CustomerEmptyState(
-                  icon: Icons.search_off_rounded,
-                  title:
-                      'Không tìm thấy nơi lưu trú',
-                  message:
-                      'Hãy thay đổi từ khóa hoặc bộ lọc.',
-                  actionLabel: 'Xóa bộ lọc',
-                  onAction: _clearFilters,
-                )
-              else
-                ...hotels.map(
-                  (hotel) => Padding(
-                    padding: const EdgeInsets.only(
-                      bottom: 14,
-                    ),
-                    child: CustomerHotelCard(
-                      hotel: hotel,
-                      onTap: () =>
-                          _openHotel(hotel),
-                    ),
-                  ),
+
+              /*
+               * Chế độ mặc định:
+               * Chỉ hiển thị danh sách đề xuất đã sắp xếp.
+               * Không lặp lại danh sách tất cả khách sạn.
+               */
+              if (_showRecommendations) ...[
+                const SizedBox(height: 26),
+                RecommendedHotelsSection(
+                  service: _recommendationService,
+                  province: _province ?? '',
+                  district: _district ?? '',
+                  limit: 20,
+                  onHotelTap: _openHotel,
                 ),
+              ] else ...[
+                /*
+                 * Chỉ hiện danh sách thông thường khi
+                 * khách tìm kiếm hoặc chọn loại hình.
+                 */
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _search.trim().isNotEmpty
+                            ? 'Kết quả tìm kiếm'
+                            : 'Nơi lưu trú phù hợp',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(
+                              fontWeight:
+                                  FontWeight.w900,
+                            ),
+                      ),
+                    ),
+                    Text(
+                      '${filteredHotels.length} kết quả',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (filteredHotels.isEmpty)
+                  CustomerEmptyState(
+                    icon: Icons.search_off_rounded,
+                    title:
+                        'Không tìm thấy nơi lưu trú',
+                    message:
+                        'Hãy thay đổi từ khóa hoặc bộ lọc.',
+                    actionLabel: 'Xóa bộ lọc',
+                    onAction: _clearFilters,
+                  )
+                else
+                  ...filteredHotels.map(
+                    (hotel) => Padding(
+                      padding:
+                          const EdgeInsets.only(
+                        bottom: 14,
+                      ),
+                      child: CustomerHotelCard(
+                        hotel: hotel,
+                        onTap: () =>
+                            _openHotel(hotel),
+                      ),
+                    ),
+                  ),
+              ],
             ],
           );
         },

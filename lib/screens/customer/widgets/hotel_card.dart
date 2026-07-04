@@ -21,6 +21,7 @@ class CustomerHotelCard extends StatelessWidget {
 
     return Card(
       clipBehavior: Clip.antiAlias,
+      margin: EdgeInsets.zero,
       child: InkWell(
         onTap: onTap,
         child: Column(
@@ -36,8 +37,6 @@ class CustomerHotelCard extends StatelessWidget {
                     fallbackIcon:
                         Icons.apartment_outlined,
                   ),
-
-                  // Chỉ giữ loại hình lưu trú trên ảnh.
                   Positioned(
                     left: 12,
                     top: 12,
@@ -46,7 +45,6 @@ class CustomerHotelCard extends StatelessWidget {
                       label: hotel.category,
                     ),
                   ),
-
                   if (hotel.images.length > 1)
                     Positioned(
                       right: 12,
@@ -67,7 +65,6 @@ class CustomerHotelCard extends StatelessWidget {
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
-                  // Ngôi sao chuyển xuống cạnh tên.
                   Row(
                     crossAxisAlignment:
                         CrossAxisAlignment.start,
@@ -90,6 +87,8 @@ class CustomerHotelCard extends StatelessWidget {
                       const SizedBox(width: 10),
                       _RatingBadge(
                         rating: hotel.rating,
+                        reviewCount:
+                            hotel.reviewCount,
                       ),
                     ],
                   ),
@@ -120,6 +119,27 @@ class CustomerHotelCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (hotel.reviewCount > 0) ...[
+                    const SizedBox(height: 9),
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: [
+                        _HotelInfoChip(
+                          icon:
+                              Icons.rate_review_outlined,
+                          label:
+                              '${hotel.reviewCount} đánh giá phòng',
+                        ),
+                        if (hotel.reviewedRoomCount > 0)
+                          _HotelInfoChip(
+                            icon: Icons.bed_outlined,
+                            label:
+                                '${hotel.reviewedRoomCount} phòng được đánh giá',
+                          ),
+                      ],
+                    ),
+                  ],
                   if (hotel.amenities.isNotEmpty) ...[
                     const SizedBox(height: 11),
                     Wrap(
@@ -130,14 +150,17 @@ class CustomerHotelCard extends StatelessWidget {
                             .take(3)
                             .map(
                               (amenity) =>
-                                  _AmenityChip(
-                                    label: amenity,
-                                  ),
+                                  _HotelInfoChip(
+                                icon: Icons
+                                    .check_circle_outline,
+                                label: amenity,
+                              ),
                             ),
                         if (hotel.amenities.length > 3)
-                          _AmenityChip(
+                          _HotelInfoChip(
+                            icon: Icons.add_rounded,
                             label:
-                                '+${hotel.amenities.length - 3}',
+                                '${hotel.amenities.length - 3} tiện nghi',
                           ),
                       ],
                     ),
@@ -221,13 +244,16 @@ class CustomerHotelCard extends StatelessWidget {
 class _RatingBadge extends StatelessWidget {
   const _RatingBadge({
     required this.rating,
+    required this.reviewCount,
   });
 
   final double rating;
+  final int reviewCount;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final hasRating = rating > 0;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -243,13 +269,15 @@ class _RatingBadge extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.star_rounded,
+              hasRating
+                  ? Icons.star_rounded
+                  : Icons.new_releases_outlined,
               size: 17,
               color: colors.onTertiaryContainer,
             ),
             const SizedBox(width: 3),
             Text(
-              rating > 0
+              hasRating
                   ? rating.toStringAsFixed(1)
                   : 'Mới',
               style: TextStyle(
@@ -258,6 +286,17 @@ class _RatingBadge extends StatelessWidget {
                 fontWeight: FontWeight.w900,
               ),
             ),
+            if (reviewCount > 0) ...[
+              const SizedBox(width: 3),
+              Text(
+                '($reviewCount)',
+                style: TextStyle(
+                  color: colors.onTertiaryContainer,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -289,11 +328,7 @@ class _ImageBadge extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: Colors.white,
-              size: 15,
-            ),
+            Icon(icon, color: Colors.white, size: 15),
             const SizedBox(width: 5),
             Text(
               label,
@@ -310,11 +345,13 @@ class _ImageBadge extends StatelessWidget {
   }
 }
 
-class _AmenityChip extends StatelessWidget {
-  const _AmenityChip({
+class _HotelInfoChip extends StatelessWidget {
+  const _HotelInfoChip({
+    required this.icon,
     required this.label,
   });
 
+  final IconData icon;
   final String label;
 
   @override
@@ -324,22 +361,22 @@ class _AmenityChip extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colors.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(7),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: 8,
-          vertical: 5,
+          vertical: 6,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.check_circle_outline,
-              size: 14,
+              icon,
+              size: 15,
               color: colors.primary,
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 5),
             Text(
               label,
               style: const TextStyle(

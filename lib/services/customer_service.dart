@@ -40,37 +40,77 @@ class CustomerService {
   }
 
   Stream<List<HotelModel>> watchHotels() {
-    return _firestore.collection('hotels').snapshots().map(
-      (snapshot) {
-        final hotels = <HotelModel>[];
+    return _firestore
+        .collection('hotels')
+        .snapshots()
+        .map((snapshot) {
+          final hotels = <HotelModel>[];
 
-        for (final document in snapshot.docs) {
+          for (final document in snapshot.docs) {
+            try {
+              final hotel = HotelModel.fromMap(
+                document.data(),
+                document.id,
+              );
+
+              if (hotel.isVisible) {
+                hotels.add(hotel);
+              }
+            } catch (error, stackTrace) {
+              developer.log(
+                'Khách sạn ${document.id} không hợp lệ.',
+                name: 'CustomerService.watchHotels',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }
+          }
+
+          hotels.sort(
+            (first, second) =>
+                first.name.toLowerCase().compareTo(
+                  second.name.toLowerCase(),
+                ),
+          );
+
+          return hotels;
+        });
+  }
+
+  Stream<HotelModel?> watchHotel(
+    String hotelId,
+  ) {
+    final normalizedId = hotelId.trim();
+
+    if (normalizedId.isEmpty) {
+      return Stream.value(null);
+    }
+
+    return _firestore
+        .collection('hotels')
+        .doc(normalizedId)
+        .snapshots()
+        .map((snapshot) {
+          final data = snapshot.data();
+
+          if (data == null) return null;
+
           try {
-            final hotel = HotelModel.fromMap(
-              document.data(),
-              document.id,
+            return HotelModel.fromMap(
+              data,
+              snapshot.id,
             );
-
-            if (hotel.isVisible) hotels.add(hotel);
           } catch (error, stackTrace) {
             developer.log(
-              'Khách sạn ${document.id} không hợp lệ.',
-              name: 'CustomerService.watchHotels',
+              'Khách sạn ${snapshot.id} không hợp lệ.',
+              name: 'CustomerService.watchHotel',
               error: error,
               stackTrace: stackTrace,
             );
+
+            return null;
           }
-        }
-
-        hotels.sort(
-          (a, b) => a.name.toLowerCase().compareTo(
-            b.name.toLowerCase(),
-          ),
-        );
-
-        return hotels;
-      },
-    );
+        });
   }
 
   Stream<List<RoomModel>> watchRooms({
@@ -84,103 +124,130 @@ class CustomerService {
       return Stream.value(const []);
     }
 
-    return _firestore.collection('rooms').snapshots().map(
-      (snapshot) {
-        final rooms = <RoomModel>[];
+    return _firestore
+        .collection('rooms')
+        .snapshots()
+        .map((snapshot) {
+          final rooms = <RoomModel>[];
 
-        for (final document in snapshot.docs) {
-          try {
-            final room = RoomModel.fromMap(
-              document.data(),
-              document.id,
-            );
+          for (final document in snapshot.docs) {
+            try {
+              final room = RoomModel.fromMap(
+                document.data(),
+                document.id,
+              );
 
-            final matchesId = room.hotelId == expectedId;
+              final matchesId =
+                  room.hotelId == expectedId;
 
-            final matchesLegacyName =
-                room.hotelId.isEmpty &&
-                expectedName.isNotEmpty &&
-                _normalize(room.hotelName) == expectedName;
+              final matchesLegacyName =
+                  room.hotelId.isEmpty &&
+                  expectedName.isNotEmpty &&
+                  _normalize(room.hotelName) ==
+                      expectedName;
 
-            if (matchesId || matchesLegacyName) {
-              rooms.add(room);
+              if (matchesId ||
+                  matchesLegacyName) {
+                rooms.add(room);
+              }
+            } catch (error, stackTrace) {
+              developer.log(
+                'Phòng ${document.id} không hợp lệ.',
+                name: 'CustomerService.watchRooms',
+                error: error,
+                stackTrace: stackTrace,
+              );
             }
-          } catch (error, stackTrace) {
-            developer.log(
-              'Phòng ${document.id} không hợp lệ.',
-              name: 'CustomerService.watchRooms',
-              error: error,
-              stackTrace: stackTrace,
-            );
           }
-        }
 
-        rooms.sort(
-          (a, b) => _compareRoomNumbers(
-            a.roomNumber,
-            b.roomNumber,
-          ),
-        );
+          rooms.sort(
+            (first, second) =>
+                _compareRoomNumbers(
+                  first.roomNumber,
+                  second.roomNumber,
+                ),
+          );
 
-        return rooms;
-      },
-    );
+          return rooms;
+        });
   }
 
-  Stream<List<RoomReservation>> watchRoomReservations({
+  Stream<List<RoomReservation>>
+  watchRoomReservations({
     required String roomId,
     DateTime? from,
     DateTime? to,
   }) {
-    if (roomId.trim().isEmpty) {
+    final normalizedRoomId = roomId.trim();
+
+    if (normalizedRoomId.isEmpty) {
       return Stream.value(const []);
     }
 
     return _firestore
         .collection('roomSchedules')
-        .where('roomId', isEqualTo: roomId.trim())
+        .where(
+          'roomId',
+          isEqualTo: normalizedRoomId,
+        )
         .snapshots()
         .map((snapshot) {
           final reservations =
               <String, RoomReservation>{};
 
           for (final document in snapshot.docs) {
-            final values =
-                _readReservations(
-                  document.data()['reservations'],
-                );
+            final values = _readReservations(
+              document.data()['reservations'],
+            );
 
             for (final entry in values.entries) {
               if (entry.value is! Map) continue;
 
-              final reservation =
-                  RoomReservation.fromMap(
-                    Map<String, dynamic>.from(
-                      entry.value as Map,
-                    ),
-                    fallbackId: entry.key,
-                  );
+              try {
+                final reservation =
+                    RoomReservation.fromMap(
+                      Map<String, dynamic>.from(
+                        entry.value as Map,
+                      ),
+                      fallbackId: entry.key,
+                    );
 
-              if (!reservation.active) continue;
+                if (!reservation.active) continue;
 
-              if (from != null &&
-                  !reservation.checkOut.isAfter(from)) {
-                continue;
+                if (from != null &&
+                    !reservation.checkOut.isAfter(
+                      from,
+                    )) {
+                  continue;
+                }
+
+                if (to != null &&
+                    !reservation.checkIn.isBefore(
+                      to,
+                    )) {
+                  continue;
+                }
+
+                reservations[reservation.bookingId] =
+                    reservation;
+              } catch (error, stackTrace) {
+                developer.log(
+                  'Lịch phòng ${entry.key} không hợp lệ.',
+                  name:
+                      'CustomerService.watchRoomReservations',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
               }
-
-              if (to != null &&
-                  !reservation.checkIn.isBefore(to)) {
-                continue;
-              }
-
-              reservations[reservation.bookingId] =
-                  reservation;
             }
           }
 
           final result = reservations.values.toList()
             ..sort(
-              (a, b) => a.checkIn.compareTo(b.checkIn),
+              (first, second) =>
+                  first.checkIn.compareTo(
+                    second.checkIn,
+                  ),
             );
 
           return result;
@@ -190,7 +257,10 @@ class CustomerService {
   Stream<List<BookingModel>> watchMyBookings() {
     return _firestore
         .collection('bookings')
-        .where('customerId', isEqualTo: customerId)
+        .where(
+          'customerId',
+          isEqualTo: customerId,
+        )
         .snapshots()
         .map((snapshot) {
           final bookings = <BookingModel>[];
@@ -206,34 +276,43 @@ class CustomerService {
             } catch (error, stackTrace) {
               developer.log(
                 'Booking ${document.id} không hợp lệ.',
-                name: 'CustomerService.watchMyBookings',
+                name:
+                    'CustomerService.watchMyBookings',
                 error: error,
                 stackTrace: stackTrace,
               );
             }
           }
 
-          bookings.sort((a, b) {
-            final first = a.createdAt ?? a.checkIn;
-            final second = b.createdAt ?? b.checkIn;
-            return second.compareTo(first);
+          bookings.sort((first, second) {
+            final firstDate =
+                first.createdAt ?? first.checkIn;
+            final secondDate =
+                second.createdAt ?? second.checkIn;
+
+            return secondDate.compareTo(firstDate);
           });
 
           return bookings;
         });
   }
 
-  Stream<BookingModel?> watchBooking(String bookingId) {
-    if (bookingId.trim().isEmpty) {
+  Stream<BookingModel?> watchBooking(
+    String bookingId,
+  ) {
+    final normalizedId = bookingId.trim();
+
+    if (normalizedId.isEmpty) {
       return Stream.value(null);
     }
 
     return _firestore
         .collection('bookings')
-        .doc(bookingId)
+        .doc(normalizedId)
         .snapshots()
         .map((snapshot) {
           final data = snapshot.data();
+
           if (data == null) return null;
 
           final booking = BookingModel.fromMap(
@@ -260,8 +339,8 @@ class CustomerService {
   }) async {
     _validateBookingTime(checkIn, checkOut);
 
-    final selectedPlan = ratePlan ??
-        _findRatePlan(room, ratePlanId);
+    final selectedPlan =
+        ratePlan ?? _findRatePlan(room, ratePlanId);
 
     final holidays =
         await _holidayService.getHolidaysForRange(
@@ -274,7 +353,8 @@ class CustomerService {
     ).calculate(
       checkIn: checkIn,
       checkOut: checkOut,
-      firstHourPrice: room.effectiveFirstHourPrice,
+      firstHourPrice:
+          room.effectiveFirstHourPrice,
       additionalHourPrice:
           room.effectiveAdditionalHourPrice,
       weekendSurchargePercent:
@@ -285,7 +365,8 @@ class CustomerService {
     );
   }
 
-  Future<List<PricingQuote>> calculateAvailablePrices({
+  Future<List<PricingQuote>>
+  calculateAvailablePrices({
     required RoomModel room,
     required DateTime checkIn,
     required DateTime checkOut,
@@ -303,7 +384,8 @@ class CustomerService {
     ).calculateAvailableQuotes(
       checkIn: checkIn,
       checkOut: checkOut,
-      firstHourPrice: room.effectiveFirstHourPrice,
+      firstHourPrice:
+          room.effectiveFirstHourPrice,
       additionalHourPrice:
           room.effectiveAdditionalHourPrice,
       weekendSurchargePercent:
@@ -327,23 +409,32 @@ class CustomerService {
     String ratePlanId = '',
   }) async {
     final user = _requireUser();
+
     _validateBookingTime(checkIn, checkOut);
 
-    if (hotel.id.isEmpty || room.id.isEmpty) {
+    if (hotel.id.trim().isEmpty ||
+        room.id.trim().isEmpty) {
       throw StateError(
         'Khách sạn hoặc phòng không hợp lệ.',
       );
     }
 
     final results = await Future.wait([
-      _firestore.collection('hotels').doc(hotel.id).get(),
-      _firestore.collection('rooms').doc(room.id).get(),
+      _firestore
+          .collection('hotels')
+          .doc(hotel.id)
+          .get(),
+      _firestore
+          .collection('rooms')
+          .doc(room.id)
+          .get(),
     ]);
 
     final hotelData = results[0].data();
     final roomData = results[1].data();
 
-    if (hotelData == null || roomData == null) {
+    if (hotelData == null ||
+        roomData == null) {
       throw StateError(
         'Khách sạn hoặc phòng không còn tồn tại.',
       );
@@ -366,14 +457,18 @@ class CustomerService {
     }
 
     if (!currentRoom.isAvailable) {
-      throw StateError('Phòng hiện đang tạm đóng.');
+      throw StateError(
+        'Phòng hiện đang tạm đóng.',
+      );
     }
 
     final belongsToHotel =
         currentRoom.hotelId == currentHotel.id ||
-        (currentRoom.hotelId.isEmpty &&
-            _normalize(currentRoom.hotelName) ==
-                _normalize(currentHotel.name));
+        (
+          currentRoom.hotelId.isEmpty &&
+          _normalize(currentRoom.hotelName) ==
+              _normalize(currentHotel.name)
+        );
 
     if (!belongsToHotel) {
       throw StateError(
@@ -381,7 +476,8 @@ class CustomerService {
       );
     }
 
-    if (guests <= 0 || guests > currentRoom.maxGuests) {
+    if (guests <= 0 ||
+        guests > currentRoom.maxGuests) {
       throw StateError(
         'Phòng phù hợp tối đa '
         '${currentRoom.maxGuests} khách.',
@@ -403,11 +499,13 @@ class CustomerService {
         ? customerName.trim()
         : user.displayName?.trim() ?? '';
 
-    final email = customerEmail.trim().isNotEmpty
-        ? customerEmail.trim()
-        : user.email?.trim() ?? '';
+    final email =
+        customerEmail.trim().isNotEmpty
+        ? customerEmail.trim().toLowerCase()
+        : user.email?.trim().toLowerCase() ?? '';
 
-    final phone = customerPhone.trim().isNotEmpty
+    final phone =
+        customerPhone.trim().isNotEmpty
         ? customerPhone.trim()
         : user.phoneNumber?.trim() ?? '';
 
@@ -418,15 +516,21 @@ class CustomerService {
     }
 
     if (!_isValidEmail(email)) {
-      throw StateError('Email không hợp lệ.');
+      throw StateError(
+        'Email không hợp lệ.',
+      );
     }
 
     if (!_isValidPhone(phone)) {
-      throw StateError('Số điện thoại không hợp lệ.');
+      throw StateError(
+        'Số điện thoại không hợp lệ.',
+      );
     }
 
-    final selectedPlan =
-        _findRatePlan(currentRoom, ratePlanId);
+    final selectedPlan = _findRatePlan(
+      currentRoom,
+      ratePlanId,
+    );
 
     final quote = await calculatePrice(
       room: currentRoom,
@@ -453,7 +557,8 @@ class CustomerService {
       customerName: name,
       customerEmail: email,
       customerPhone: phone,
-      specialRequests: specialRequests.trim(),
+      specialRequests:
+          specialRequests.trim(),
       providerId: providerId,
       hotelId: currentHotel.id,
       hotelName: currentHotel.name,
@@ -467,7 +572,8 @@ class CustomerService {
       nights: nights < 1 ? 1 : nights,
       baseHourlyPrice:
           currentRoom.effectiveFirstHourPrice,
-      firstHourPrice: quote.effectiveFirstHourPrice,
+      firstHourPrice:
+          quote.effectiveFirstHourPrice,
       additionalHourPrice:
           quote.effectiveAdditionalHourPrice,
       durationMinutes: quote.durationMinutes,
@@ -487,11 +593,13 @@ class CustomerService {
       status: BookingStatus.pendingProvider,
       paymentMethod: PaymentMethod.vietQr,
       paymentStatus: PaymentStatus.unpaid,
-      paymentReference:
-          _paymentReference(bookingReference.id),
+      paymentReference: _paymentReference(
+        bookingReference.id,
+      ),
       commissionRate: 0.10,
-      commissionAmount:
-          _roundToThousand(quote.totalAmount * 0.10),
+      commissionAmount: _roundToThousand(
+        quote.totalAmount * 0.10,
+      ),
     );
 
     await _createBookingTransaction(
@@ -510,7 +618,7 @@ class CustomerService {
 
   Future<void> _createBookingTransaction({
     required DocumentReference<Map<String, dynamic>>
-        reference,
+    reference,
     required BookingModel booking,
     required List<String> scheduleIds,
     required Map<String, dynamic> additionalData,
@@ -523,222 +631,279 @@ class CustomerService {
         )
         .toList();
 
-    await _firestore.runTransaction((transaction) async {
-      final snapshots =
-          <DocumentSnapshot<Map<String, dynamic>>>[];
+    await _firestore.runTransaction(
+      (transaction) async {
+        final snapshots =
+            <
+              DocumentSnapshot<
+                Map<String, dynamic>
+              >
+            >[];
 
-      // Firestore yêu cầu toàn bộ thao tác đọc trước ghi.
-      for (final scheduleReference
-          in scheduleReferences) {
-        snapshots.add(
-          await transaction.get(scheduleReference),
-        );
-      }
-
-      final reservationMaps =
-          <Map<String, dynamic>>[];
-
-      for (final snapshot in snapshots) {
-        final reservations = _readReservations(
-          snapshot.data()?['reservations'],
-        );
-
-        for (final entry in reservations.entries) {
-          if (entry.value is! Map) continue;
-
-          final reservation =
-              RoomReservation.fromMap(
-                Map<String, dynamic>.from(
-                  entry.value as Map,
-                ),
-                fallbackId: entry.key,
-              );
-
-          if (reservation.overlaps(
-            booking.checkIn,
-            booking.checkOut,
-          )) {
-            throw StateError(
-              'Phòng đã được đặt trong khung giờ này. '
-              'Vui lòng chọn thời gian khác.',
-            );
-          }
+        // Firestore yêu cầu đọc toàn bộ dữ liệu trước ghi.
+        for (final scheduleReference
+            in scheduleReferences) {
+          snapshots.add(
+            await transaction.get(
+              scheduleReference,
+            ),
+          );
         }
 
-        reservationMaps.add(reservations);
-      }
+        final reservationMaps =
+            <Map<String, dynamic>>[];
 
-      transaction.set(reference, {
-        ...booking.toMap(),
-        ...additionalData,
-        'scheduleIds': scheduleIds,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+        for (final snapshot in snapshots) {
+          final reservations = _readReservations(
+            snapshot.data()?['reservations'],
+          );
 
-      for (var index = 0;
+          for (final entry
+              in reservations.entries) {
+            if (entry.value is! Map) continue;
+
+            final reservation =
+                RoomReservation.fromMap(
+                  Map<String, dynamic>.from(
+                    entry.value as Map,
+                  ),
+                  fallbackId: entry.key,
+                );
+
+            if (reservation.overlaps(
+              booking.checkIn,
+              booking.checkOut,
+            )) {
+              throw StateError(
+                'Phòng đã được đặt trong khung giờ này. '
+                'Vui lòng chọn thời gian khác.',
+              );
+            }
+          }
+
+          reservationMaps.add(reservations);
+        }
+
+        transaction.set(reference, {
+          ...booking.toMap(),
+          ...additionalData,
+          'scheduleIds': scheduleIds,
+          'createdAt':
+              FieldValue.serverTimestamp(),
+          'updatedAt':
+              FieldValue.serverTimestamp(),
+        });
+
+        for (
+          var index = 0;
           index < scheduleReferences.length;
-          index++) {
-        final reservations = reservationMaps[index];
+          index++
+        ) {
+          final reservations =
+              reservationMaps[index];
 
-        reservations[booking.id] = RoomReservation(
-          bookingId: booking.id,
-          roomId: booking.roomId,
-          providerId: booking.providerId,
-          checkIn: booking.checkIn,
-          checkOut: booking.checkOut,
-          active: true,
-        ).toMap();
+          reservations[booking.id] =
+              RoomReservation(
+                bookingId: booking.id,
+                roomId: booking.roomId,
+                providerId: booking.providerId,
+                checkIn: booking.checkIn,
+                checkOut: booking.checkOut,
+                active: true,
+              ).toMap();
 
-        transaction.set(
-          scheduleReferences[index],
-          {
-            'roomId': booking.roomId,
-            'yearMonth':
-                scheduleIds[index].split('_').last,
-            'reservations': reservations,
-            'lastBookingId': booking.id,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
-      }
-    });
+          transaction.set(
+            scheduleReferences[index],
+            {
+              'roomId': booking.roomId,
+              'yearMonth':
+                  scheduleIds[index]
+                      .split('_')
+                      .last,
+              'reservations': reservations,
+              'lastBookingId': booking.id,
+              'updatedAt':
+                  FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        }
+      },
+    );
   }
 
-  Future<void> submitPayment(String bookingId) async {
+  Future<void> submitPayment(
+    String bookingId,
+  ) async {
     final user = _requireUser();
-    final reference =
-        _firestore.collection('bookings').doc(bookingId);
 
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(reference);
-      final data = snapshot.data();
+    final reference = _firestore
+        .collection('bookings')
+        .doc(bookingId);
 
-      if (data == null) {
-        throw StateError(
-          'Không tìm thấy đơn đặt phòng.',
+    await _firestore.runTransaction(
+      (transaction) async {
+        final snapshot =
+            await transaction.get(reference);
+
+        final data = snapshot.data();
+
+        if (data == null) {
+          throw StateError(
+            'Không tìm thấy đơn đặt phòng.',
+          );
+        }
+
+        final booking = BookingModel.fromMap(
+          data,
+          snapshot.id,
         );
-      }
 
-      final booking = BookingModel.fromMap(
-        data,
-        snapshot.id,
-      );
+        if (booking.customerId != user.uid) {
+          throw StateError(
+            'Bạn không có quyền thanh toán đơn này.',
+          );
+        }
 
-      if (booking.customerId != user.uid) {
-        throw StateError(
-          'Bạn không có quyền thanh toán đơn này.',
-        );
-      }
+        if (!booking.canCustomerPay) {
+          throw StateError(
+            'Đơn chưa thể thanh toán '
+            'hoặc đã quá hạn.',
+          );
+        }
 
-      if (!booking.canCustomerPay) {
-        throw StateError(
-          'Đơn chưa thể thanh toán hoặc đã quá hạn.',
-        );
-      }
+        if (!booking.hasReceiverAccount) {
+          throw StateError(
+            'Nhà cung cấp chưa có '
+            'tài khoản nhận tiền.',
+          );
+        }
 
-      if (!booking.hasReceiverAccount) {
-        throw StateError(
-          'Nhà cung cấp chưa có tài khoản nhận tiền.',
-        );
-      }
-
-      transaction.update(reference, {
-        'status': BookingStatus.paymentReview,
-        'paymentStatus': PaymentStatus.submitted,
-        'paymentSubmittedAt':
-            FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    });
+        transaction.update(reference, {
+          'status': BookingStatus.paymentReview,
+          'paymentStatus':
+              PaymentStatus.submitted,
+          'paymentSubmittedAt':
+              FieldValue.serverTimestamp(),
+          'updatedAt':
+              FieldValue.serverTimestamp(),
+        });
+      },
+    );
   }
 
   Future<void> cancelBooking(
     BookingModel booking,
   ) async {
     final user = _requireUser();
-    final reference =
-        _firestore.collection('bookings').doc(booking.id);
 
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(reference);
-      final data = snapshot.data();
+    final reference = _firestore
+        .collection('bookings')
+        .doc(booking.id);
 
-      if (data == null) {
-        throw StateError(
-          'Không tìm thấy đơn đặt phòng.',
-        );
-      }
+    await _firestore.runTransaction(
+      (transaction) async {
+        final snapshot =
+            await transaction.get(reference);
 
-      final current = BookingModel.fromMap(
-        data,
-        snapshot.id,
-      );
+        final data = snapshot.data();
 
-      if (current.customerId != user.uid) {
-        throw StateError(
-          'Bạn không có quyền hủy đơn này.',
-        );
-      }
+        if (data == null) {
+          throw StateError(
+            'Không tìm thấy đơn đặt phòng.',
+          );
+        }
 
-      if (!current.canCustomerCancel) {
-        throw StateError(
-          'Đơn này không còn được phép hủy.',
-        );
-      }
-
-      final scheduleIds =
-          _readScheduleIds(data, current);
-
-      final scheduleReferences = scheduleIds
-          .map(
-            (id) => _firestore
-                .collection('roomSchedules')
-                .doc(id),
-          )
-          .toList();
-
-      final scheduleSnapshots =
-          <DocumentSnapshot<Map<String, dynamic>>>[];
-
-      for (final scheduleReference
-          in scheduleReferences) {
-        scheduleSnapshots.add(
-          await transaction.get(scheduleReference),
-        );
-      }
-
-      transaction.update(reference, {
-        'status': BookingStatus.cancelled,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      for (var index = 0;
-          index < scheduleReferences.length;
-          index++) {
-        final schedule = scheduleSnapshots[index];
-        if (!schedule.exists) continue;
-
-        final reservations = _readReservations(
-          schedule.data()?['reservations'],
+        final current = BookingModel.fromMap(
+          data,
+          snapshot.id,
         );
 
-        final oldValue = reservations[current.id];
-        if (oldValue is! Map) continue;
+        if (current.customerId != user.uid) {
+          throw StateError(
+            'Bạn không có quyền hủy đơn này.',
+          );
+        }
 
-        reservations[current.id] = {
-          ...Map<String, dynamic>.from(oldValue),
-          'active': false,
-        };
+        if (!current.canCustomerCancel) {
+          throw StateError(
+            'Đơn này không còn được phép hủy.',
+          );
+        }
 
-        transaction.update(scheduleReferences[index], {
-          'reservations': reservations,
-          'lastBookingId': current.id,
-          'updatedAt': FieldValue.serverTimestamp(),
+        final scheduleIds = _readScheduleIds(
+          data,
+          current,
+        );
+
+        final scheduleReferences = scheduleIds
+            .map(
+              (id) => _firestore
+                  .collection('roomSchedules')
+                  .doc(id),
+            )
+            .toList();
+
+        final scheduleSnapshots =
+            <
+              DocumentSnapshot<
+                Map<String, dynamic>
+              >
+            >[];
+
+        for (final scheduleReference
+            in scheduleReferences) {
+          scheduleSnapshots.add(
+            await transaction.get(
+              scheduleReference,
+            ),
+          );
+        }
+
+        transaction.update(reference, {
+          'status': BookingStatus.cancelled,
+          'updatedAt':
+              FieldValue.serverTimestamp(),
         });
-      }
-    });
+
+        for (
+          var index = 0;
+          index < scheduleReferences.length;
+          index++
+        ) {
+          final schedule =
+              scheduleSnapshots[index];
+
+          if (!schedule.exists) continue;
+
+          final reservations = _readReservations(
+            schedule.data()?['reservations'],
+          );
+
+          final oldValue =
+              reservations[current.id];
+
+          if (oldValue is! Map) continue;
+
+          reservations[current.id] = {
+            ...Map<String, dynamic>.from(
+              oldValue,
+            ),
+            'active': false,
+          };
+
+          transaction.update(
+            scheduleReferences[index],
+            {
+              'reservations': reservations,
+              'lastBookingId': current.id,
+              'updatedAt':
+                  FieldValue.serverTimestamp(),
+            },
+          );
+        }
+      },
+    );
   }
 
   RoomRatePlan? _findRatePlan(
@@ -746,10 +911,13 @@ class CustomerService {
     String ratePlanId,
   ) {
     final normalized = ratePlanId.trim();
+
     if (normalized.isEmpty) return null;
 
     for (final plan in room.enabledRatePlans) {
-      if (plan.id == normalized) return plan;
+      if (plan.id == normalized) {
+        return plan;
+      }
     }
 
     throw StateError(
@@ -763,7 +931,11 @@ class CustomerService {
     DateTime checkOut,
   ) {
     final ids = <String>[];
-    var cursor = DateTime(checkIn.year, checkIn.month);
+
+    var cursor = DateTime(
+      checkIn.year,
+      checkIn.month,
+    );
 
     final lastMoment = checkOut.subtract(
       const Duration(microseconds: 1),
@@ -778,8 +950,14 @@ class CustomerService {
       final month =
           cursor.month.toString().padLeft(2, '0');
 
-      ids.add('${roomId}_${cursor.year}$month');
-      cursor = DateTime(cursor.year, cursor.month + 1);
+      ids.add(
+        '${roomId}_${cursor.year}$month',
+      );
+
+      cursor = DateTime(
+        cursor.year,
+        cursor.month + 1,
+      );
     }
 
     return ids;
@@ -797,7 +975,9 @@ class CustomerService {
           .where((item) => item.isNotEmpty)
           .toList();
 
-      if (result.isNotEmpty) return result;
+      if (result.isNotEmpty) {
+        return result;
+      }
     }
 
     return _scheduleIds(
@@ -829,10 +1009,13 @@ class CustomerService {
     }
 
     if (checkIn.isBefore(
-      DateTime.now().subtract(const Duration(minutes: 1)),
+      DateTime.now().subtract(
+        const Duration(minutes: 1),
+      ),
     )) {
       throw StateError(
-        'Thời gian nhận phòng không được ở quá khứ.',
+        'Thời gian nhận phòng '
+        'không được ở quá khứ.',
       );
     }
 
@@ -847,11 +1030,13 @@ class CustomerService {
 
     if (duration.inMinutes % 60 != 0) {
       throw StateError(
-        'Thời gian thuê phải tăng theo bước 1 giờ.',
+        'Thời gian thuê phải tăng '
+        'theo bước 1 giờ.',
       );
     }
 
-    if (duration < const Duration(hours: 1)) {
+    if (duration <
+        const Duration(hours: 1)) {
       throw StateError(
         'Thời gian thuê tối thiểu là 1 giờ.',
       );
@@ -886,23 +1071,30 @@ class CustomerService {
   bool _isValidEmail(String value) {
     return RegExp(
       r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-    ).hasMatch(value);
+    ).hasMatch(value.trim());
   }
 
   bool _isValidPhone(String value) {
-    final normalized = value.replaceAll(
-      RegExp(r'[\s.-]'),
-      '',
-    );
+    final normalized = value
+        .trim()
+        .replaceAll(
+          RegExp(r'[\s.-]'),
+          '',
+        );
 
     return RegExp(
-      r'^(0|\+84)[0-9]{9,10}$',
+      r'^(?:0[0-9]{9}|\+84[0-9]{9})$',
     ).hasMatch(normalized);
   }
 
-  String _paymentReference(String bookingId) {
+  String _paymentReference(
+    String bookingId,
+  ) {
     final value = bookingId
-        .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')
+        .replaceAll(
+          RegExp(r'[^a-zA-Z0-9]'),
+          '',
+        )
         .toUpperCase();
 
     final shortId = value.length > 12
@@ -916,11 +1108,17 @@ class CustomerService {
     String first,
     String second,
   ) {
-    final firstNumber = int.tryParse(first.trim());
-    final secondNumber = int.tryParse(second.trim());
+    final firstNumber =
+        int.tryParse(first.trim());
 
-    if (firstNumber != null && secondNumber != null) {
-      return firstNumber.compareTo(secondNumber);
+    final secondNumber =
+        int.tryParse(second.trim());
+
+    if (firstNumber != null &&
+        secondNumber != null) {
+      return firstNumber.compareTo(
+        secondNumber,
+      );
     }
 
     return first.toLowerCase().compareTo(

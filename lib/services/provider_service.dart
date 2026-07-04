@@ -102,7 +102,9 @@ class ProviderService {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>>
-  watchBookings({String status = 'all'}) {
+  watchBookings({
+    String status = 'all',
+  }) {
     Query<Map<String, dynamic>> query = _firestore
         .collection('bookings')
         .where('providerId', isEqualTo: providerId);
@@ -131,6 +133,7 @@ class ProviderService {
       bookings.sort((a, b) {
         final first = a.createdAt ?? a.checkIn;
         final second = b.createdAt ?? b.checkIn;
+
         return second.compareTo(first);
       });
 
@@ -200,6 +203,10 @@ class ProviderService {
     required String description,
     required List<String> images,
     required String category,
+    required String contactPhone,
+    String contactEmail = '',
+    String zaloPhone = '',
+    String facebookUrl = '',
     List<String> amenities = const [],
   }) async {
     final normalizedImages = _normalizeList(images);
@@ -210,11 +217,36 @@ class ProviderService {
       );
     }
 
+    if (province.trim().isEmpty) {
+      throw StateError(
+        'Vui lòng nhập tỉnh hoặc thành phố.',
+      );
+    }
+
+    if (district.trim().isEmpty) {
+      throw StateError(
+        'Vui lòng nhập quận hoặc huyện.',
+      );
+    }
+
+    if (address.trim().isEmpty) {
+      throw StateError(
+        'Vui lòng nhập địa chỉ khách sạn.',
+      );
+    }
+
     if (normalizedImages.isEmpty) {
       throw StateError(
         'Khách sạn phải có ít nhất một ảnh.',
       );
     }
+
+    _validateHotelContact(
+      phone: contactPhone,
+      email: contactEmail,
+      zalo: zaloPhone,
+      facebook: facebookUrl,
+    );
 
     await _firestore.collection('hotels').add({
       'providerId': providerId,
@@ -229,6 +261,13 @@ class ProviderService {
       'category': category.trim(),
       'status': 'approved',
       'rating': 0.0,
+      'contactPhone':
+          _normalizePhone(contactPhone),
+      'contactEmail':
+          contactEmail.trim().toLowerCase(),
+      'zaloPhone': _normalizePhone(zaloPhone),
+      'facebookUrl':
+          _normalizeFacebookUrl(facebookUrl),
       'minPrice': 0.0,
       'minHourlyPrice': 0.0,
       'minFirstHourPrice': 0.0,
@@ -243,13 +282,49 @@ class ProviderService {
   ) async {
     _ensureOwnership(hotel.providerId);
 
+    if (hotel.id.trim().isEmpty) {
+      throw StateError(
+        'Mã khách sạn không hợp lệ.',
+      );
+    }
+
+    if (hotel.name.trim().length < 2) {
+      throw StateError(
+        'Tên khách sạn không hợp lệ.',
+      );
+    }
+
+    if (hotel.images.isEmpty &&
+        hotel.imageUrl.trim().isEmpty) {
+      throw StateError(
+        'Khách sạn phải có ít nhất một ảnh.',
+      );
+    }
+
+    _validateHotelContact(
+      phone: hotel.contactPhone,
+      email: hotel.contactEmail,
+      zalo: hotel.zaloPhone,
+      facebook: hotel.facebookUrl,
+    );
+
     await _firestore
         .collection('hotels')
         .doc(hotel.id)
         .update({
           ...hotel.toMap(),
           'providerId': providerId,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'contactPhone':
+              _normalizePhone(hotel.contactPhone),
+          'contactEmail':
+              hotel.contactEmail.trim().toLowerCase(),
+          'zaloPhone':
+              _normalizePhone(hotel.zaloPhone),
+          'facebookUrl': _normalizeFacebookUrl(
+            hotel.facebookUrl,
+          ),
+          'updatedAt':
+              FieldValue.serverTimestamp(),
         });
   }
 
@@ -691,6 +766,7 @@ class ProviderService {
           index < scheduleReferences.length;
           index++) {
         final snapshot = scheduleSnapshots[index];
+
         if (!snapshot.exists) continue;
 
         final reservations = _readReservations(
@@ -698,6 +774,7 @@ class ProviderService {
         );
 
         final oldValue = reservations[booking.id];
+
         if (oldValue is! Map) continue;
 
         reservations[booking.id] = {
@@ -705,11 +782,15 @@ class ProviderService {
           'active': false,
         };
 
-        transaction.update(scheduleReferences[index], {
-          'reservations': reservations,
-          'lastBookingId': booking.id,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+        transaction.update(
+          scheduleReferences[index],
+          {
+            'reservations': reservations,
+            'lastBookingId': booking.id,
+            'updatedAt':
+                FieldValue.serverTimestamp(),
+          },
+        );
       }
     });
   }
@@ -755,7 +836,9 @@ class ProviderService {
         document.id,
       );
 
-      if (booking.roomId != current.roomId) continue;
+      if (booking.roomId != current.roomId) {
+        continue;
+      }
 
       if (booking.isFinished) continue;
 
@@ -802,12 +885,98 @@ class ProviderService {
         .get();
 
     final duplicated = snapshot.docs.any(
-      (document) => document.id != excludedRoomId,
+      (document) =>
+          document.id != excludedRoomId,
     );
 
     if (duplicated) {
       throw StateError('Số phòng đã tồn tại.');
     }
+  }
+
+  void _validateHotelContact({
+    required String phone,
+    required String email,
+    required String zalo,
+    required String facebook,
+  }) {
+    final normalizedPhone = _normalizePhone(phone);
+
+    if (!_isValidVietnamesePhone(
+      normalizedPhone,
+    )) {
+      throw StateError(
+        'Số điện thoại liên hệ không hợp lệ.',
+      );
+    }
+
+    final normalizedEmail =
+        email.trim().toLowerCase();
+
+    if (normalizedEmail.isNotEmpty &&
+        !RegExp(
+          r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+        ).hasMatch(normalizedEmail)) {
+      throw StateError(
+        'Email liên hệ không hợp lệ.',
+      );
+    }
+
+    final normalizedZalo = _normalizePhone(zalo);
+
+    if (normalizedZalo.isNotEmpty &&
+        !_isValidVietnamesePhone(
+          normalizedZalo,
+        )) {
+      throw StateError(
+        'Số điện thoại Zalo không hợp lệ.',
+      );
+    }
+
+    if (facebook.trim().isNotEmpty) {
+      final normalizedUrl =
+          _normalizeFacebookUrl(facebook);
+
+      final uri = Uri.tryParse(normalizedUrl);
+      final host = uri?.host.toLowerCase() ?? '';
+
+      final validHost =
+          host == 'facebook.com' ||
+          host.endsWith('.facebook.com');
+
+      if (uri == null ||
+          !uri.hasScheme ||
+          !validHost) {
+        throw StateError(
+          'Đường dẫn Facebook không hợp lệ.',
+        );
+      }
+    }
+  }
+
+  bool _isValidVietnamesePhone(String value) {
+    return RegExp(
+      r'^(?:0[0-9]{9}|\+84[0-9]{9})$',
+    ).hasMatch(value);
+  }
+
+  String _normalizePhone(String value) {
+    return value
+        .trim()
+        .replaceAll(RegExp(r'[\s.-]'), '');
+  }
+
+  String _normalizeFacebookUrl(String value) {
+    final normalized = value.trim();
+
+    if (normalized.isEmpty) return '';
+
+    if (normalized.startsWith('http://') ||
+        normalized.startsWith('https://')) {
+      return normalized;
+    }
+
+    return 'https://$normalized';
   }
 
   void _validateRoomData({
@@ -820,7 +989,9 @@ class ProviderService {
     required List<RoomRatePlan> ratePlans,
   }) {
     if (roomNumber.trim().isEmpty) {
-      throw StateError('Vui lòng nhập số phòng.');
+      throw StateError(
+        'Vui lòng nhập số phòng.',
+      );
     }
 
     if (firstHourPrice <= 0 ||
@@ -851,7 +1022,8 @@ class ProviderService {
     for (final plan in ratePlans) {
       if (!plan.isValid) {
         throw StateError(
-          'Thông tin combo ${plan.name} không hợp lệ.',
+          'Thông tin combo '
+          '${plan.name} không hợp lệ.',
         );
       }
 
@@ -897,8 +1069,9 @@ class ProviderService {
     double minimum(
       Iterable<double> source,
     ) {
-      final values =
-          source.where((value) => value > 0).toList();
+      final values = source
+          .where((value) => value > 0)
+          .toList();
 
       if (values.isEmpty) return 0;
 
@@ -932,7 +1105,8 @@ class ProviderService {
                   room.effectiveAdditionalHourPrice,
             ),
           ),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt':
+              FieldValue.serverTimestamp(),
         });
   }
 
@@ -964,7 +1138,11 @@ class ProviderService {
     DateTime checkOut,
   ) {
     final ids = <String>[];
-    var cursor = DateTime(checkIn.year, checkIn.month);
+
+    var cursor = DateTime(
+      checkIn.year,
+      checkIn.month,
+    );
 
     final lastMoment = checkOut.subtract(
       const Duration(microseconds: 1),
@@ -979,8 +1157,14 @@ class ProviderService {
       final month =
           cursor.month.toString().padLeft(2, '0');
 
-      ids.add('${roomId}_${cursor.year}$month');
-      cursor = DateTime(cursor.year, cursor.month + 1);
+      ids.add(
+        '${roomId}_${cursor.year}$month',
+      );
+
+      cursor = DateTime(
+        cursor.year,
+        cursor.month + 1,
+      );
     }
 
     return ids;

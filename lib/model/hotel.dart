@@ -12,9 +12,16 @@ class HotelModel {
     required this.status,
     this.province = '',
     this.district = '',
+    this.contactEmail = '',
+    this.contactPhone = '',
+    this.zaloPhone = '',
+    this.facebookUrl = '',
     this.images = const [],
     this.amenities = const [],
     this.rating = 0,
+    this.reviewCount = 0,
+    this.reviewedRoomCount = 0,
+    this.recommendationScore = 0,
     this.minPrice = 0,
     this.minHourlyPrice = 0,
     this.minFirstHourPrice = 0,
@@ -34,14 +41,20 @@ class HotelModel {
   final List<String> amenities;
   final String category;
   final String status;
+
+  // Điểm tổng hợp từ các đánh giá phòng thuộc khách sạn.
   final double rating;
+  final int reviewCount;
+  final int reviewedRoomCount;
+  final double recommendationScore;
 
-  /// Giá theo đêm, giữ tương thích dữ liệu cũ.
+  final String contactEmail;
+  final String contactPhone;
+  final String zaloPhone;
+  final String facebookUrl;
+
   final double minPrice;
-
-  /// Giá giờ cũ.
   final double minHourlyPrice;
-
   final double minFirstHourPrice;
   final double minAdditionalHourPrice;
   final DateTime? createdAt;
@@ -52,11 +65,38 @@ class HotelModel {
   }
 
   String get fullAddress {
-    return [
-      address.trim(),
-      district.trim(),
-      province.trim(),
-    ].where((value) => value.isNotEmpty).toSet().join(', ');
+    final parts = <String>[];
+
+    void addPart(String value) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) return;
+
+      final current = parts.join(', ').toLowerCase();
+
+      if (!current.contains(normalized.toLowerCase())) {
+        parts.add(normalized);
+      }
+    }
+
+    addPart(address);
+    addPart(district);
+    addPart(province);
+
+    return parts.join(', ');
+  }
+
+  bool get hasContactInformation {
+    return contactEmail.trim().isNotEmpty ||
+        contactPhone.trim().isNotEmpty ||
+        zaloPhone.trim().isNotEmpty ||
+        facebookUrl.trim().isNotEmpty;
+  }
+
+  bool get hasReviews => reviewCount > 0 && rating > 0;
+
+  String get ratingLabel {
+    if (!hasReviews) return 'Mới';
+    return rating.toStringAsFixed(1);
   }
 
   double get effectiveMinHourlyPrice {
@@ -110,8 +150,13 @@ class HotelModel {
     if (province.isEmpty || district.isEmpty) {
       final location = _inferLocationFromAddress(address);
 
-      if (province.isEmpty) province = location.province;
-      if (district.isEmpty) district = location.district;
+      if (province.isEmpty) {
+        province = location.province;
+      }
+
+      if (district.isEmpty) {
+        district = location.district;
+      }
     }
 
     return HotelModel(
@@ -139,6 +184,25 @@ class HotelModel {
         fallback: 'approved',
       ).toLowerCase(),
       rating: _asDouble(data['rating']),
+      reviewCount: _asInt(data['reviewCount']),
+      reviewedRoomCount: _asInt(
+        data['reviewedRoomCount'],
+      ),
+      recommendationScore: _asDouble(
+        data['recommendationScore'],
+      ),
+      contactEmail: _asString(
+        data['contactEmail'] ?? data['email'],
+      ).toLowerCase(),
+      contactPhone: _asString(
+        data['contactPhone'] ?? data['phoneNumber'],
+      ),
+      zaloPhone: _asString(
+        data['zaloPhone'] ?? data['zalo'],
+      ),
+      facebookUrl: _asString(
+        data['facebookUrl'] ?? data['facebook'],
+      ),
       minPrice: minPrice,
       minHourlyPrice: legacyHourlyPrice,
       minFirstHourPrice: _asDouble(
@@ -180,7 +244,15 @@ class HotelModel {
       'amenities': normalizedAmenities,
       'category': category.trim(),
       'status': status.trim().toLowerCase(),
+
+      // Giữ tương thích với rules hiện tại.
+      // Điểm thật vẫn được RecommendationService tính từ reviews.
       'rating': rating,
+
+      'contactEmail': contactEmail.trim().toLowerCase(),
+      'contactPhone': contactPhone.trim(),
+      'zaloPhone': zaloPhone.trim(),
+      'facebookUrl': facebookUrl.trim(),
       'minPrice': minPrice,
       'minHourlyPrice': effectiveMinHourlyPrice,
       'minFirstHourPrice': effectiveMinFirstHourPrice,
@@ -203,6 +275,13 @@ class HotelModel {
     String? category,
     String? status,
     double? rating,
+    int? reviewCount,
+    int? reviewedRoomCount,
+    double? recommendationScore,
+    String? contactEmail,
+    String? contactPhone,
+    String? zaloPhone,
+    String? facebookUrl,
     double? minPrice,
     double? minHourlyPrice,
     double? minFirstHourPrice,
@@ -223,8 +302,18 @@ class HotelModel {
       category: category ?? this.category,
       status: status ?? this.status,
       rating: rating ?? this.rating,
+      reviewCount: reviewCount ?? this.reviewCount,
+      reviewedRoomCount:
+          reviewedRoomCount ?? this.reviewedRoomCount,
+      recommendationScore:
+          recommendationScore ?? this.recommendationScore,
+      contactEmail: contactEmail ?? this.contactEmail,
+      contactPhone: contactPhone ?? this.contactPhone,
+      zaloPhone: zaloPhone ?? this.zaloPhone,
+      facebookUrl: facebookUrl ?? this.facebookUrl,
       minPrice: minPrice ?? this.minPrice,
-      minHourlyPrice: minHourlyPrice ?? this.minHourlyPrice,
+      minHourlyPrice:
+          minHourlyPrice ?? this.minHourlyPrice,
       minFirstHourPrice:
           minFirstHourPrice ?? this.minFirstHourPrice,
       minAdditionalHourPrice:
@@ -310,6 +399,16 @@ double _asDouble(dynamic value, {double fallback = 0}) {
   return fallback;
 }
 
+int _asInt(dynamic value, {int fallback = 0}) {
+  if (value is num) return value.toInt();
+
+  if (value is String) {
+    return int.tryParse(value.trim()) ?? fallback;
+  }
+
+  return fallback;
+}
+
 DateTime? _asDateTime(dynamic value) {
   if (value is Timestamp) return value.toDate();
   if (value is DateTime) return value;
@@ -318,7 +417,9 @@ DateTime? _asDateTime(dynamic value) {
     return DateTime.fromMillisecondsSinceEpoch(value);
   }
 
-  if (value is String) return DateTime.tryParse(value);
+  if (value is String) {
+    return DateTime.tryParse(value);
+  }
 
   return null;
 }

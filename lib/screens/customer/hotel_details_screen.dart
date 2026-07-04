@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../../model/hotel.dart';
+import '../../model/hotel_rating.dart';
+import '../../model/review.dart';
 import '../../model/room.dart';
 import '../../services/customer_service.dart';
+import '../../services/recommendation_service.dart';
+import '../../services/review_service.dart';
+import 'hotel_reviews_screen.dart';
 import 'room_details_screen.dart';
 import 'widgets/customer_empty_state.dart';
 import 'widgets/image_carousel.dart';
+import 'widgets/rating_summary.dart';
 import 'widgets/room_card.dart';
 
 class HotelDetailsScreen extends StatefulWidget {
@@ -33,9 +39,17 @@ class _HotelDetailsScreenState
     extends State<HotelDetailsScreen> {
   final _searchController = TextEditingController();
 
+  late final RecommendationService
+      _recommendationService;
+  late final ReviewService _reviewService;
+
+  late Stream<List<RoomRecommendation>>
+      _recommendedRoomsStream;
+
+  late Stream<List<ReviewModel>> _reviewsStream;
+
   late int _guests;
   String _search = '';
-  bool _onlyAvailable = true;
 
   @override
   void initState() {
@@ -44,10 +58,31 @@ class _HotelDetailsScreenState
     _guests = widget.initialGuests > 0
         ? widget.initialGuests
         : 1;
+
+    _recommendationService =
+        RecommendationService();
+
+    _reviewService = ReviewService();
+
+    _reviewsStream =
+        _reviewService.watchHotelRoomReviews(
+      widget.hotel.id,
+    );
+
+    _refreshRecommendedRooms();
+  }
+
+  void _refreshRecommendedRooms() {
+    _recommendedRoomsStream =
+        _recommendationService.watchRecommendedRooms(
+      hotelId: widget.hotel.id,
+      guests: _guests,
+      limit: 100,
+    );
   }
 
   Future<void> _selectGuests() async {
-    var value = _guests;
+    var guests = _guests;
 
     final result = await showModalBottomSheet<int>(
       context: context,
@@ -66,14 +101,12 @@ class _HotelDetailsScreenState
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
+                    const Text(
                       'Số lượng khách',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(
-                            fontWeight: FontWeight.w900,
-                          ),
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     Row(
@@ -81,9 +114,9 @@ class _HotelDetailsScreenState
                           MainAxisAlignment.center,
                       children: [
                         IconButton.filledTonal(
-                          onPressed: value > 1
+                          onPressed: guests > 1
                               ? () => setSheetState(
-                                  () => value--,
+                                  () => guests--,
                                 )
                               : null,
                           icon: const Icon(Icons.remove),
@@ -91,17 +124,18 @@ class _HotelDetailsScreenState
                         SizedBox(
                           width: 120,
                           child: Text(
-                            '$value khách',
+                            '$guests khách',
                             textAlign: TextAlign.center,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                         IconButton.filled(
-                          onPressed: value < 30
+                          onPressed: guests < 30
                               ? () => setSheetState(
-                                  () => value++,
+                                  () => guests++,
                                 )
                               : null,
                           icon: const Icon(Icons.add),
@@ -112,9 +146,10 @@ class _HotelDetailsScreenState
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: () => Navigator.pop(
+                        onPressed: () =>
+                            Navigator.pop(
                           sheetContext,
-                          value,
+                          guests,
                         ),
                         child: const Text('Áp dụng'),
                       ),
@@ -129,7 +164,11 @@ class _HotelDetailsScreenState
     );
 
     if (!mounted || result == null) return;
-    setState(() => _guests = result);
+
+    setState(() {
+      _guests = result;
+      _refreshRecommendedRooms();
+    });
   }
 
   void _openRoom(RoomModel room) {
@@ -142,6 +181,18 @@ class _HotelDetailsScreenState
           initialCheckIn: widget.initialCheckIn,
           initialCheckOut: widget.initialCheckOut,
           initialGuests: _guests,
+        ),
+      ),
+    );
+  }
+
+  void _openReviews() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => HotelReviewsScreen(
+          service: _reviewService,
+          hotelId: widget.hotel.id,
+          hotelName: widget.hotel.name,
         ),
       ),
     );
@@ -183,26 +234,14 @@ class _HotelDetailsScreenState
             ),
             sliver: SliverList.list(
               children: [
-                Row(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        hotel.name,
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineSmall
-                            ?.copyWith(
-                              fontWeight:
-                                  FontWeight.w900,
-                            ),
+                Text(
+                  hotel.name,
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineSmall
+                      ?.copyWith(
+                        fontWeight: FontWeight.w900,
                       ),
-                    ),
-                    _RatingBadge(
-                      rating: hotel.rating,
-                    ),
-                  ],
                 ),
                 const SizedBox(height: 9),
                 Row(
@@ -211,8 +250,8 @@ class _HotelDetailsScreenState
                   children: [
                     Icon(
                       Icons.location_on_outlined,
-                      size: 19,
                       color: colors.primary,
+                      size: 19,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -236,22 +275,57 @@ class _HotelDetailsScreenState
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children:
-                        hotel.amenities.map((value) {
-                          return Chip(
-                            avatar: const Icon(
-                              Icons
-                                  .check_circle_outline,
-                              size: 16,
-                            ),
-                            label: Text(value),
-                          );
-                        }).toList(),
+                    children: hotel.amenities.map((value) {
+                      return Chip(
+                        avatar: const Icon(
+                          Icons.check_circle_outline,
+                          size: 16,
+                        ),
+                        label: Text(value),
+                      );
+                    }).toList(),
                   ),
                 ],
+                const SizedBox(height: 20),
+                StreamBuilder<List<ReviewModel>>(
+                  stream: _reviewsStream,
+                  builder: (context, snapshot) {
+                    final reviews = snapshot.data ?? [];
+
+                    final rating =
+                        HotelRating.calculate(
+                      hotelId: hotel.id,
+                      reviews: reviews,
+                    );
+
+                    return Column(
+                      children: [
+                        CustomerRatingSummary.hotel(
+                          rating: rating,
+                        ),
+                        if (rating.reviewCount > 0) ...[
+                          const SizedBox(height: 9),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _openReviews,
+                              icon: const Icon(
+                                Icons.rate_review_outlined,
+                              ),
+                              label: Text(
+                                'Xem ${rating.reviewCount} '
+                                'đánh giá phòng',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
                 const SizedBox(height: 24),
                 Text(
-                  'Chọn phòng',
+                  'Phòng đề xuất',
                   style: Theme.of(context)
                       .textTheme
                       .titleLarge
@@ -261,8 +335,8 @@ class _HotelDetailsScreenState
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  'Mở chi tiết phòng để xem lịch trống, '
-                  'combo và giá chính xác.',
+                  'Phòng phù hợp được xếp theo điểm '
+                  'đánh giá và số lượt đánh giá.',
                   style: TextStyle(
                     color: colors.onSurfaceVariant,
                   ),
@@ -270,12 +344,6 @@ class _HotelDetailsScreenState
                 const SizedBox(height: 12),
                 TextField(
                   controller: _searchController,
-                  onChanged: (value) {
-                    setState(
-                      () => _search =
-                          value.trim().toLowerCase(),
-                    );
-                  },
                   decoration: InputDecoration(
                     hintText:
                         'Tìm loại phòng hoặc số phòng...',
@@ -297,38 +365,23 @@ class _HotelDetailsScreenState
                             ),
                           ),
                   ),
+                  onChanged: (value) {
+                    setState(() {
+                      _search =
+                          value.trim().toLowerCase();
+                    });
+                  },
                 ),
                 const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _FilterTile(
-                        icon: Icons.groups_outlined,
-                        label: '$_guests khách',
-                        onTap: _selectGuests,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    FilterChip(
-                      label:
-                          const Text('Phòng đang mở'),
-                      selected: _onlyAvailable,
-                      onSelected: (value) {
-                        setState(
-                          () => _onlyAvailable = value,
-                        );
-                      },
-                    ),
-                  ],
+                _GuestFilter(
+                  guests: _guests,
+                  onTap: _selectGuests,
                 ),
               ],
             ),
           ),
-          StreamBuilder<List<RoomModel>>(
-            stream: widget.service.watchRooms(
-              hotelId: hotel.id,
-              hotelName: hotel.name,
-            ),
+          StreamBuilder<List<RoomRecommendation>>(
+            stream: _recommendedRoomsStream,
             builder: (context, snapshot) {
               if (snapshot.connectionState ==
                       ConnectionState.waiting &&
@@ -354,27 +407,16 @@ class _HotelDetailsScreenState
               }
 
               final rooms = (snapshot.data ?? [])
-                  .where((room) {
-                    final source =
-                        '${room.roomNumber} ${room.type}'
-                            .toLowerCase();
+                  .where((recommendation) {
+                final room = recommendation.room;
 
-                    final matchesSearch =
-                        _search.isEmpty ||
-                        source.contains(_search);
+                final source =
+                    '${room.roomNumber} ${room.type}'
+                        .toLowerCase();
 
-                    final matchesGuests =
-                        room.maxGuests >= _guests;
-
-                    final matchesStatus =
-                        !_onlyAvailable ||
-                        room.isAvailable;
-
-                    return matchesSearch &&
-                        matchesGuests &&
-                        matchesStatus;
-                  })
-                  .toList();
+                return _search.isEmpty ||
+                    source.contains(_search);
+              }).toList();
 
               if (rooms.isEmpty) {
                 return const SliverFillRemaining(
@@ -383,7 +425,7 @@ class _HotelDetailsScreenState
                     icon: Icons.bed_outlined,
                     title: 'Không có phòng phù hợp',
                     message:
-                        'Hãy thay đổi số khách hoặc bộ lọc.',
+                        'Hãy thay đổi số khách hoặc từ khóa.',
                   ),
                 );
               }
@@ -400,14 +442,46 @@ class _HotelDetailsScreenState
                   separatorBuilder: (_, __) =>
                       const SizedBox(height: 14),
                   itemBuilder: (context, index) {
-                    final room = rooms[index];
+                    final recommendation =
+                        rooms[index];
 
-                    return CustomerRoomCard(
-                      room: room,
-                      guests: _guests,
-                      checkIn: widget.initialCheckIn,
-                      checkOut: widget.initialCheckOut,
-                      onTap: () => _openRoom(room),
+                    final room =
+                        recommendation.room.copyWith(
+                      rating:
+                          recommendation.rating.averageRating,
+                      reviewCount:
+                          recommendation.rating.reviewCount,
+                      recommendationScore:
+                          recommendation.rating
+                              .recommendationScore,
+                    );
+
+                    return Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        if (index == 0 &&
+                            recommendation
+                                .rating.hasReviews)
+                          Padding(
+                            padding:
+                                const EdgeInsets.only(
+                              bottom: 7,
+                            ),
+                            child: _TopRoomBadge(
+                              rating:
+                                  recommendation.rating,
+                            ),
+                          ),
+                        CustomerRoomCard(
+                          room: room,
+                          guests: _guests,
+                          checkIn: widget.initialCheckIn,
+                          checkOut:
+                              widget.initialCheckOut,
+                          onTap: () => _openRoom(room),
+                        ),
+                      ],
                     );
                   },
                 ),
@@ -420,39 +494,40 @@ class _HotelDetailsScreenState
   }
 }
 
-class _FilterTile extends StatelessWidget {
-  const _FilterTile({
-    required this.icon,
-    required this.label,
+class _GuestFilter extends StatelessWidget {
+  const _GuestFilter({
+    required this.guests,
     required this.onTap,
   });
 
-  final IconData icon;
-  final String label;
+  final int guests;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return Material(
-      color: Theme.of(context)
-          .colorScheme
-          .surfaceContainerLow,
+      color: colors.surfaceContainerLow,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
+            horizontal: 13,
+            vertical: 11,
           ),
           child: Row(
             children: [
-              Icon(icon, size: 19),
-              const SizedBox(width: 7),
+              Icon(
+                Icons.groups_outlined,
+                color: colors.primary,
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  label,
+                  '$guests khách',
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
                   ),
@@ -469,38 +544,41 @@ class _FilterTile extends StatelessWidget {
   }
 }
 
-class _RatingBadge extends StatelessWidget {
-  const _RatingBadge({
-    required this.rating,
-  });
+class _TopRoomBadge extends StatelessWidget {
+  const _TopRoomBadge({required this.rating});
 
-  final double rating;
+  final RoomRating rating;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.orange.withValues(alpha: 0.12),
+        color: colors.primaryContainer,
         borderRadius: BorderRadius.circular(7),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
-          horizontal: 8,
+          horizontal: 9,
           vertical: 6,
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.star_rounded,
-              color: Colors.orange,
-              size: 18,
+            Icon(
+              Icons.workspace_premium_outlined,
+              size: 17,
+              color: colors.onPrimaryContainer,
             ),
-            const SizedBox(width: 3),
+            const SizedBox(width: 5),
             Text(
-              rating > 0
-                  ? rating.toStringAsFixed(1)
-                  : 'Mới',
-              style: const TextStyle(
+              'Được đề xuất · '
+              '${rating.averageRating.toStringAsFixed(1)} sao · '
+              '${rating.reviewCount} đánh giá',
+              style: TextStyle(
+                color: colors.onPrimaryContainer,
+                fontSize: 11,
                 fontWeight: FontWeight.w900,
               ),
             ),

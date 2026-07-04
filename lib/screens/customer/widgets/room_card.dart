@@ -26,6 +26,7 @@ class CustomerRoomCard extends StatelessWidget {
 
     return Card(
       clipBehavior: Clip.antiAlias,
+      margin: EdgeInsets.zero,
       child: InkWell(
         onTap: onTap,
         child: Column(
@@ -64,18 +65,51 @@ class CustomerRoomCard extends StatelessWidget {
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '${room.type} · '
-                    'Phòng ${room.roomNumber}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(
-                          fontWeight: FontWeight.w900,
+                  Row(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${room.type} · '
+                          'Phòng ${room.roomNumber}',
+                          maxLines: 2,
+                          overflow:
+                              TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(
+                                fontWeight:
+                                    FontWeight.w900,
+                              ),
                         ),
+                      ),
+                      const SizedBox(width: 9),
+                      _RoomRatingBadge(room: room),
+                    ],
                   ),
+                  if (room.reviewCount > 0) ...[
+                    const SizedBox(height: 7),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.verified_outlined,
+                          size: 17,
+                          color: colors.primary,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '${room.reviewCount} đánh giá thực tế',
+                          style: TextStyle(
+                            color: colors.primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 7,
@@ -138,77 +172,25 @@ class CustomerRoomCard extends StatelessWidget {
                     child: Row(
                       children: [
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment
-                                    .start,
-                            children: [
-                              Text(
-                                'Giờ đầu tiên',
-                                style: TextStyle(
-                                  color: colors
-                                      .onSurfaceVariant,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                room.effectiveFirstHourPrice >
-                                        0
-                                    ? _money(
-                                        room
-                                            .effectiveFirstHourPrice,
-                                      )
-                                    : 'Chưa có giá',
-                                style: TextStyle(
-                                  color: room
-                                              .effectiveFirstHourPrice >
-                                          0
-                                      ? colors.primary
-                                      : colors.error,
-                                  fontSize: 18,
-                                  fontWeight:
-                                      FontWeight.w900,
-                                ),
-                              ),
-                            ],
+                          child: _PriceColumn(
+                            label: 'Giờ đầu tiên',
+                            price:
+                                room.effectiveFirstHourPrice,
+                            primary: true,
                           ),
                         ),
                         Container(
                           width: 1,
-                          height: 38,
+                          height: 40,
                           color: colors.outlineVariant,
                         ),
                         const SizedBox(width: 13),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment
-                                    .start,
-                            children: [
-                              Text(
-                                'Từ giờ thứ hai',
-                                style: TextStyle(
-                                  color: colors
-                                      .onSurfaceVariant,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                room.effectiveAdditionalHourPrice >
-                                        0
-                                    ? '${_money(room.effectiveAdditionalHourPrice)}/giờ'
-                                    : 'Chưa có giá',
-                                maxLines: 1,
-                                overflow:
-                                    TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight:
-                                      FontWeight.w900,
-                                ),
-                              ),
-                            ],
+                          child: _PriceColumn(
+                            label: 'Từ giờ thứ hai',
+                            price: room
+                                .effectiveAdditionalHourPrice,
+                            suffix: '/giờ',
                           ),
                         ),
                       ],
@@ -262,7 +244,7 @@ class CustomerRoomCard extends StatelessWidget {
                       ),
                       label: Text(
                         reason == null
-                            ? 'Xem lịch trống và đặt phòng'
+                            ? 'Xem đánh giá, lịch trống và đặt phòng'
                             : 'Xem chi tiết phòng',
                       ),
                     ),
@@ -273,6 +255,103 @@ class CustomerRoomCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _RoomRatingBadge extends StatelessWidget {
+  const _RoomRatingBadge({required this.room});
+
+  final RoomModel room;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final hasRating = room.rating > 0;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.tertiaryContainer,
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 6,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              hasRating
+                  ? Icons.star_rounded
+                  : Icons.new_releases_outlined,
+              size: 17,
+              color: colors.onTertiaryContainer,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              hasRating
+                  ? room.rating.toStringAsFixed(1)
+                  : 'Mới',
+              style: TextStyle(
+                color: colors.onTertiaryContainer,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PriceColumn extends StatelessWidget {
+  const _PriceColumn({
+    required this.label,
+    required this.price,
+    this.primary = false,
+    this.suffix = '',
+  });
+
+  final String label;
+  final double price;
+  final bool primary;
+  final String suffix;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: colors.onSurfaceVariant,
+            fontSize: 11,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          price > 0
+              ? '${_money(price)}$suffix'
+              : 'Chưa có giá',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: price <= 0
+                ? colors.error
+                : primary
+                    ? colors.primary
+                    : colors.onSurface,
+            fontSize: primary ? 18 : 15,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -327,9 +406,7 @@ class _AvailabilityBadge extends StatelessWidget {
 }
 
 class _PhotoBadge extends StatelessWidget {
-  const _PhotoBadge({
-    required this.count,
-  });
+  const _PhotoBadge({required this.count});
 
   final int count;
 
@@ -405,11 +482,7 @@ class _RoomInfo extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 15,
-              color: foreground,
-            ),
+            Icon(icon, size: 15, color: foreground),
             const SizedBox(width: 5),
             Text(
               label,
@@ -454,9 +527,10 @@ double _minimumComboPrice(RoomModel room) {
 
   return plans
       .map((plan) => plan.price)
-      .reduce((first, second) {
-        return first < second ? first : second;
-      });
+      .reduce(
+        (first, second) =>
+            first < second ? first : second,
+      );
 }
 
 String _money(double value) {

@@ -25,6 +25,9 @@ class RoomModel {
     this.images = const [],
     this.amenities = const [],
     this.ratePlans = const [],
+    this.rating = 0,
+    this.reviewCount = 0,
+    this.recommendationScore = 0,
     this.createdAt,
   });
 
@@ -35,12 +38,9 @@ class RoomModel {
   final String roomNumber;
   final String type;
 
-  /// Giá theo đêm, giữ tương thích dữ liệu cũ.
+  // Giá theo đêm, giữ tương thích dữ liệu cũ.
   final double price;
-
-  /// Giá giờ cũ, giữ tương thích.
   final double hourlyPrice;
-
   final double firstHourPrice;
   final double additionalHourPrice;
 
@@ -56,7 +56,20 @@ class RoomModel {
   final List<String> images;
   final List<String> amenities;
   final List<RoomRatePlan> ratePlans;
+
+  // Điểm được tính từ reviews có cùng roomId.
+  final double rating;
+  final int reviewCount;
+  final double recommendationScore;
+
   final DateTime? createdAt;
+
+  bool get hasReviews => reviewCount > 0 && rating > 0;
+
+  String get ratingLabel {
+    if (!hasReviews) return 'Mới';
+    return rating.toStringAsFixed(1);
+  }
 
   String get coverImage {
     return images.isEmpty ? '' : images.first;
@@ -80,7 +93,6 @@ class RoomModel {
     return _legacyHourlyPrice;
   }
 
-  /// Giữ tương thích với giao diện/service cũ.
   double get effectiveHourlyPrice {
     return effectiveFirstHourPrice;
   }
@@ -164,6 +176,11 @@ class RoomModel {
       images: _readImages(data),
       amenities: _readStringList(data['amenities']),
       ratePlans: _readRatePlans(data['ratePlans']),
+      rating: _asDouble(data['rating']),
+      reviewCount: _asInt(data['reviewCount']),
+      recommendationScore: _asDouble(
+        data['recommendationScore'],
+      ),
       createdAt: _asDateTime(data['createdAt']),
     );
   }
@@ -217,6 +234,9 @@ class RoomModel {
       'ratePlans': normalizedPlans.values
           .map((plan) => plan.toMap())
           .toList(),
+
+      // rating, reviewCount và recommendationScore không ghi tại đây.
+      // Các giá trị này được tính từ collection reviews.
     };
   }
 
@@ -242,6 +262,9 @@ class RoomModel {
     List<String>? images,
     List<String>? amenities,
     List<RoomRatePlan>? ratePlans,
+    double? rating,
+    int? reviewCount,
+    double? recommendationScore,
     DateTime? createdAt,
   }) {
     return RoomModel(
@@ -272,6 +295,10 @@ class RoomModel {
       images: images ?? this.images,
       amenities: amenities ?? this.amenities,
       ratePlans: ratePlans ?? this.ratePlans,
+      rating: rating ?? this.rating,
+      reviewCount: reviewCount ?? this.reviewCount,
+      recommendationScore:
+          recommendationScore ?? this.recommendationScore,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -387,7 +414,9 @@ DateTime? _asDateTime(dynamic value) {
     return DateTime.fromMillisecondsSinceEpoch(value);
   }
 
-  if (value is String) return DateTime.tryParse(value);
+  if (value is String) {
+    return DateTime.tryParse(value);
+  }
 
   return null;
 }

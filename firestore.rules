@@ -259,19 +259,53 @@ service cloud.firestore {
       }
 
       function validHotelData() {
-        return request.resource.data.name is string
-          && request.resource.data.name.size() >= 2
-          && request.resource.data.address is string
-          && request.resource.data.images is list
-          && request.resource.data.category is string
-          && request.resource.data.minPrice is number
-          && request.resource.data.minHourlyPrice is number
-          && request.resource.data.minFirstHourPrice
-            is number
-          && request.resource.data.minAdditionalHourPrice
-            is number;
-      }
-
+  return request.resource.data.name is string
+    && request.resource.data.name.size() >= 2
+    && request.resource.data.name.size() <= 150
+    && request.resource.data.address is string
+    && request.resource.data.address.size() >= 3
+    && request.resource.data.address.size() <= 300
+    && request.resource.data.province is string
+    && request.resource.data.province.size() >= 2
+    && request.resource.data.province.size() <= 100
+    && request.resource.data.district is string
+    && request.resource.data.district.size() >= 2
+    && request.resource.data.district.size() <= 100
+    && request.resource.data.description is string
+    && request.resource.data.description.size() <= 3000
+    && request.resource.data.images is list
+    && request.resource.data.images.size() >= 1
+    && request.resource.data.images.size() <= 50
+    && request.resource.data.category is string
+    && request.resource.data.category in [
+      'Khách sạn',
+      'Căn hộ',
+      'Biệt thự',
+      'Homestay',
+      'Resort',
+      'Nhà nghỉ'
+    ]
+    && request.resource.data.contactEmail is string
+    && request.resource.data.contactEmail.size() <= 254
+    && request.resource.data.contactPhone is string
+    && request.resource.data.contactPhone.size() >= 10
+    && request.resource.data.contactPhone.size() <= 15
+    && request.resource.data.zaloPhone is string
+    && request.resource.data.zaloPhone.size() <= 15
+    && request.resource.data.facebookUrl is string
+    && request.resource.data.facebookUrl.size() <= 500
+    && request.resource.data.rating is number
+    && request.resource.data.rating >= 0
+    && request.resource.data.rating <= 5
+    && request.resource.data.minPrice is number
+    && request.resource.data.minPrice >= 0
+    && request.resource.data.minHourlyPrice is number
+    && request.resource.data.minHourlyPrice >= 0
+    && request.resource.data.minFirstHourPrice is number
+    && request.resource.data.minFirstHourPrice >= 0
+    && request.resource.data.minAdditionalHourPrice is number
+    && request.resource.data.minAdditionalHourPrice >= 0;
+}
       allow read: if activeUser();
 
       allow create: if isProvider()
@@ -1009,7 +1043,330 @@ service cloud.firestore {
 
       allow delete: if isAdmin();
     }
+/*
+ * ROOM REVIEWS
+ *
+ * Review đánh giá phòng, không đánh giá trực tiếp khách sạn.
+ * Document ID bằng bookingId để mỗi đơn chỉ có một review.
+ */
+match /reviews/{reviewId} {
+  function reviewBookingPath() {
+    return /databases/$(database)
+      /documents/bookings/$(reviewId);
+  }
 
+  function reviewBookingExists() {
+    return exists(reviewBookingPath());
+  }
+
+  function reviewBooking() {
+    return get(reviewBookingPath()).data;
+  }
+
+  function expectedSeverity(rating) {
+    return rating == 1
+      ? 'critical'
+      : rating == 2
+        ? 'high'
+        : rating == 3
+          ? 'warning'
+          : 'normal';
+  }
+
+  function expectedModerationStatus(rating) {
+    return rating <= 3
+      ? 'pending_review'
+      : 'not_required';
+  }
+
+  function validReviewRating() {
+    return request.resource.data.rating is int
+      && request.resource.data.rating >= 1
+      && request.resource.data.rating <= 5;
+  }
+
+  function validReviewComment() {
+    return request.resource.data.comment is string
+      && request.resource.data.comment.size() >= 5
+      && request.resource.data.comment.size() <= 1500;
+  }
+
+  function validSeverity() {
+    return request.resource.data.severity in [
+      'normal',
+      'warning',
+      'high',
+      'critical'
+    ];
+  }
+
+  function validModerationStatus() {
+    return request.resource.data.moderationStatus in [
+      'not_required',
+      'pending_review',
+      'investigating',
+      'provider_contacted',
+      'resolved',
+      'dismissed'
+    ];
+  }
+
+  function validReviewCreateData() {
+    return request.resource.data.keys().hasOnly([
+        'targetType',
+        'bookingId',
+        'customerId',
+        'customerName',
+        'providerId',
+        'hotelId',
+        'hotelName',
+        'roomId',
+        'roomNumber',
+        'roomType',
+        'rating',
+        'comment',
+        'providerReply',
+        'status',
+        'severity',
+        'moderationStatus',
+        'adminNote',
+        'assignedAdminId',
+        'providerActionRequired',
+        'createdAt',
+        'updatedAt',
+        'repliedAt',
+        'reviewedAt',
+        'resolvedAt'
+      ])
+      && request.resource.data.targetType == 'room'
+      && request.resource.data.bookingId == reviewId
+
+      && request.resource.data.customerId
+        == request.auth.uid
+      && request.resource.data.customerName is string
+      && request.resource.data.customerName.size() >= 1
+      && request.resource.data.customerName.size() <= 150
+
+      && request.resource.data.providerId
+        == reviewBooking().providerId
+      && request.resource.data.hotelId
+        == reviewBooking().hotelId
+      && request.resource.data.hotelName
+        == reviewBooking().hotelName
+      && request.resource.data.roomId
+        == reviewBooking().roomId
+      && request.resource.data.roomNumber
+        == reviewBooking().roomNumber
+      && request.resource.data.roomType
+        == reviewBooking().roomType
+
+      && validReviewRating()
+      && validReviewComment()
+
+      && request.resource.data.providerReply == ''
+      && request.resource.data.status == 'published'
+
+      && validSeverity()
+      && request.resource.data.severity
+        == expectedSeverity(
+          request.resource.data.rating
+        )
+
+      && validModerationStatus()
+      && request.resource.data.moderationStatus
+        == expectedModerationStatus(
+          request.resource.data.rating
+        )
+
+      && request.resource.data.adminNote == ''
+      && request.resource.data.assignedAdminId == ''
+      && request.resource.data.providerActionRequired
+        == (request.resource.data.rating <= 2)
+
+      && request.resource.data.createdAt is timestamp
+      && request.resource.data.updatedAt is timestamp
+      && request.resource.data.repliedAt == null
+      && request.resource.data.reviewedAt == null
+      && request.resource.data.resolvedAt == null;
+  }
+
+  function customerCreatesReview() {
+    return activeUser()
+      && reviewBookingExists()
+      && reviewBooking().customerId
+        == request.auth.uid
+      && reviewBooking().status == 'completed'
+      && validReviewCreateData();
+  }
+
+  function customerUpdatesReview() {
+    let changed = request.resource.data
+      .diff(resource.data)
+      .affectedKeys();
+
+    return activeUser()
+      && resource.data.customerId
+        == request.auth.uid
+
+      && request.resource.data.targetType
+        == resource.data.targetType
+      && request.resource.data.bookingId
+        == resource.data.bookingId
+      && request.resource.data.customerId
+        == resource.data.customerId
+      && request.resource.data.customerName
+        == resource.data.customerName
+      && request.resource.data.providerId
+        == resource.data.providerId
+      && request.resource.data.hotelId
+        == resource.data.hotelId
+      && request.resource.data.hotelName
+        == resource.data.hotelName
+      && request.resource.data.roomId
+        == resource.data.roomId
+      && request.resource.data.roomNumber
+        == resource.data.roomNumber
+      && request.resource.data.roomType
+        == resource.data.roomType
+      && request.resource.data.providerReply
+        == resource.data.providerReply
+      && request.resource.data.status
+        == resource.data.status
+      && request.resource.data.createdAt
+        == resource.data.createdAt
+      && request.resource.data.repliedAt
+        == resource.data.repliedAt
+
+      && validReviewRating()
+      && validReviewComment()
+
+      && request.resource.data.severity
+        == expectedSeverity(
+          request.resource.data.rating
+        )
+      && request.resource.data.moderationStatus
+        == expectedModerationStatus(
+          request.resource.data.rating
+        )
+      && request.resource.data.providerActionRequired
+        == (request.resource.data.rating <= 2)
+
+      && request.resource.data.adminNote == ''
+      && request.resource.data.assignedAdminId == ''
+      && request.resource.data.reviewedAt == null
+      && request.resource.data.resolvedAt == null
+      && request.resource.data.updatedAt is timestamp
+
+      && changed.hasOnly([
+        'rating',
+        'comment',
+        'severity',
+        'moderationStatus',
+        'adminNote',
+        'assignedAdminId',
+        'providerActionRequired',
+        'reviewedAt',
+        'resolvedAt',
+        'updatedAt'
+      ]);
+  }
+
+  function providerRepliesToReview() {
+    let changed = request.resource.data
+      .diff(resource.data)
+      .affectedKeys();
+
+    let validReply =
+      (
+        request.resource.data.providerReply is string
+        && request.resource.data.providerReply.size() >= 2
+        && request.resource.data.providerReply.size() <= 1000
+        && request.resource.data.repliedAt is timestamp
+      )
+      || (
+        request.resource.data.providerReply == ''
+        && request.resource.data.repliedAt == null
+      );
+
+    return isProvider()
+      && resource.data.providerId
+        == request.auth.uid
+      && request.resource.data.providerId
+        == resource.data.providerId
+      && request.resource.data.customerId
+        == resource.data.customerId
+      && request.resource.data.bookingId
+        == resource.data.bookingId
+      && request.resource.data.hotelId
+        == resource.data.hotelId
+      && request.resource.data.roomId
+        == resource.data.roomId
+      && request.resource.data.rating
+        == resource.data.rating
+      && request.resource.data.comment
+        == resource.data.comment
+      && request.resource.data.status
+        == resource.data.status
+      && request.resource.data.severity
+        == resource.data.severity
+      && request.resource.data.moderationStatus
+        == resource.data.moderationStatus
+      && request.resource.data.adminNote
+        == resource.data.adminNote
+      && request.resource.data.assignedAdminId
+        == resource.data.assignedAdminId
+      && request.resource.data.providerActionRequired
+        == resource.data.providerActionRequired
+      && request.resource.data.reviewedAt
+        == resource.data.reviewedAt
+      && request.resource.data.resolvedAt
+        == resource.data.resolvedAt
+      && request.resource.data.updatedAt is timestamp
+      && validReply
+      && changed.hasOnly([
+        'providerReply',
+        'repliedAt',
+        'updatedAt'
+      ]);
+  }
+
+  allow get: if activeUser()
+    && (
+      (
+        reviewBookingExists()
+        && reviewBooking().customerId
+          == request.auth.uid
+      )
+      || isAdmin()
+      || resource.data.status == 'published'
+      || resource.data.customerId
+        == request.auth.uid
+      || resource.data.providerId
+        == request.auth.uid
+    );
+
+  allow list: if activeUser()
+    && (
+      resource.data.status == 'published'
+      || resource.data.customerId
+        == request.auth.uid
+      || resource.data.providerId
+        == request.auth.uid
+      || isAdmin()
+    );
+
+  allow create: if customerCreatesReview();
+
+  /*
+   * Admin được cập nhật moderation, ghi chú, trạng thái
+   * hiển thị và phân công xử lý.
+   */
+  allow update: if isAdmin()
+    || customerUpdatesReview()
+    || providerRepliesToReview();
+
+  allow delete: if isAdmin();
+}
     /*
      * APPLICATION SETTINGS
      */

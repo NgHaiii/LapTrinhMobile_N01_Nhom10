@@ -18,7 +18,10 @@ abstract final class CommissionStatus {
   static String normalize(dynamic value) {
     final status = value?.toString().trim().toLowerCase();
 
-    if (status != null && values.contains(status)) return status;
+    if (status != null && values.contains(status)) {
+      return status;
+    }
+
     return unpaid;
   }
 
@@ -46,6 +49,8 @@ class CommissionInvoice {
     required this.bookingIds,
     required this.status,
     required this.paymentReference,
+    this.penaltyAmount = 0,
+    this.violationRecordIds = const [],
     this.rejectionReason = '',
     this.dueDate,
     this.paymentSubmittedAt,
@@ -62,14 +67,17 @@ class CommissionInvoice {
   final int month;
   final int year;
 
-  /// Tổng doanh thu booking đã được thanh toán.
   final double grossRevenue;
-
-  /// Tỷ lệ hoa hồng, ví dụ 0.10 tương ứng 10%.
   final double commissionRate;
 
+  /// Hoa hồng cơ bản, chưa bao gồm phụ thu vi phạm.
   final double commissionAmount;
+
+  /// Tổng khoản phụ thu từ các biên bản vi phạm.
+  final double penaltyAmount;
+
   final List<String> bookingIds;
+  final List<String> violationRecordIds;
 
   final String status;
   final String paymentReference;
@@ -86,9 +94,18 @@ class CommissionInvoice {
     return 'Tháng ${month.toString().padLeft(2, '0')}/$year';
   }
 
-  String get statusLabel => CommissionStatus.label(status);
+  String get statusLabel {
+    return CommissionStatus.label(status);
+  }
 
-  bool get isPaid => status == CommissionStatus.paid;
+  bool get isPaid {
+    return status == CommissionStatus.paid;
+  }
+
+  bool get hasPenalty {
+    return effectivePenaltyAmount > 0 &&
+        violationRecordIds.isNotEmpty;
+  }
 
   bool get canSubmitPayment {
     return status == CommissionStatus.unpaid ||
@@ -102,19 +119,39 @@ class CommissionInvoice {
         DateTime.now().isAfter(dueDate!);
   }
 
-  double get effectiveCommissionAmount {
+  double get effectiveBaseCommissionAmount {
     if (commissionAmount > 0) return commissionAmount;
     return grossRevenue * commissionRate;
+  }
+
+  double get effectivePenaltyAmount {
+    return penaltyAmount < 0 ? 0 : penaltyAmount;
+  }
+
+  /// Giữ getter cũ để các màn hình hiện tại vẫn hoạt động.
+  /// Giá trị trả về đã bao gồm phụ thu vi phạm.
+  double get effectiveCommissionAmount {
+    return effectiveBaseCommissionAmount +
+        effectivePenaltyAmount;
+  }
+
+  double get totalPayableAmount {
+    return effectiveCommissionAmount;
   }
 
   factory CommissionInvoice.fromMap(
     Map<String, dynamic> data,
     String id,
   ) {
-    final grossRevenue = _asDouble(data['grossRevenue']);
-    final commissionRate = _asDouble(
-      data['commissionRate'],
-      fallback: 0.10,
+    final grossRevenue = _asDouble(
+      data['grossRevenue'],
+    );
+
+    final commissionRate = _normalizeRate(
+      _asDouble(
+        data['commissionRate'],
+        fallback: 0.10,
+      ),
     );
 
     return CommissionInvoice(
@@ -138,16 +175,40 @@ class CommissionInvoice {
         data['commissionAmount'],
         fallback: grossRevenue * commissionRate,
       ),
-      bookingIds: _readStringList(data['bookingIds']),
-      status: CommissionStatus.normalize(data['status']),
-      paymentReference: _asString(data['paymentReference']),
-      rejectionReason: _asString(data['rejectionReason']),
+      penaltyAmount: _asDouble(
+        data['penaltyAmount'],
+      ),
+      bookingIds: _readStringList(
+        data['bookingIds'],
+      ),
+      violationRecordIds: _readStringList(
+        data['violationRecordIds'],
+      ),
+      status: CommissionStatus.normalize(
+        data['status'],
+      ),
+      paymentReference: _asString(
+        data['paymentReference'],
+      ),
+      rejectionReason: _asString(
+        data['rejectionReason'],
+      ),
       dueDate: _asDateTime(data['dueDate']),
-      paymentSubmittedAt: _asDateTime(data['paymentSubmittedAt']),
-      confirmedAt: _asDateTime(data['confirmedAt']),
-      confirmedBy: _asString(data['confirmedBy']),
-      createdAt: _asDateTime(data['createdAt']),
-      updatedAt: _asDateTime(data['updatedAt']),
+      paymentSubmittedAt: _asDateTime(
+        data['paymentSubmittedAt'],
+      ),
+      confirmedAt: _asDateTime(
+        data['confirmedAt'],
+      ),
+      confirmedBy: _asString(
+        data['confirmedBy'],
+      ),
+      createdAt: _asDateTime(
+        data['createdAt'],
+      ),
+      updatedAt: _asDateTime(
+        data['updatedAt'],
+      ),
     );
   }
 
@@ -159,19 +220,23 @@ class CommissionInvoice {
       'year': year,
       'grossRevenue': grossRevenue,
       'commissionRate': commissionRate,
-      'commissionAmount': effectiveCommissionAmount,
+      'commissionAmount':
+          effectiveBaseCommissionAmount,
+      'penaltyAmount': effectivePenaltyAmount,
+      'totalPayableAmount': totalPayableAmount,
       'bookingIds': bookingIds.toSet().toList(),
+      'violationRecordIds':
+          violationRecordIds.toSet().toList(),
       'status': CommissionStatus.normalize(status),
       'paymentReference': paymentReference.trim(),
       'rejectionReason': rejectionReason.trim(),
-      'dueDate': dueDate == null ? null : Timestamp.fromDate(dueDate!),
-      'paymentSubmittedAt': paymentSubmittedAt == null
-          ? null
-          : Timestamp.fromDate(paymentSubmittedAt!),
-      'confirmedAt': confirmedAt == null
-          ? null
-          : Timestamp.fromDate(confirmedAt!),
+      'dueDate': _timestamp(dueDate),
+      'paymentSubmittedAt':
+          _timestamp(paymentSubmittedAt),
+      'confirmedAt': _timestamp(confirmedAt),
       'confirmedBy': confirmedBy.trim(),
+      'createdAt': _timestamp(createdAt),
+      'updatedAt': _timestamp(updatedAt),
     };
   }
 
@@ -184,7 +249,9 @@ class CommissionInvoice {
     double? grossRevenue,
     double? commissionRate,
     double? commissionAmount,
+    double? penaltyAmount,
     List<String>? bookingIds,
+    List<String>? violationRecordIds,
     String? status,
     String? paymentReference,
     String? rejectionReason,
@@ -201,18 +268,29 @@ class CommissionInvoice {
       providerName: providerName ?? this.providerName,
       month: month ?? this.month,
       year: year ?? this.year,
-      grossRevenue: grossRevenue ?? this.grossRevenue,
-      commissionRate: commissionRate ?? this.commissionRate,
-      commissionAmount: commissionAmount ?? this.commissionAmount,
+      grossRevenue:
+          grossRevenue ?? this.grossRevenue,
+      commissionRate:
+          commissionRate ?? this.commissionRate,
+      commissionAmount:
+          commissionAmount ?? this.commissionAmount,
+      penaltyAmount:
+          penaltyAmount ?? this.penaltyAmount,
       bookingIds: bookingIds ?? this.bookingIds,
+      violationRecordIds:
+          violationRecordIds ?? this.violationRecordIds,
       status: status ?? this.status,
-      paymentReference: paymentReference ?? this.paymentReference,
-      rejectionReason: rejectionReason ?? this.rejectionReason,
+      paymentReference:
+          paymentReference ?? this.paymentReference,
+      rejectionReason:
+          rejectionReason ?? this.rejectionReason,
       dueDate: dueDate ?? this.dueDate,
       paymentSubmittedAt:
-          paymentSubmittedAt ?? this.paymentSubmittedAt,
+          paymentSubmittedAt ??
+          this.paymentSubmittedAt,
       confirmedAt: confirmedAt ?? this.confirmedAt,
-      confirmedBy: confirmedBy ?? this.confirmedBy,
+      confirmedBy:
+          confirmedBy ?? this.confirmedBy,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -220,41 +298,51 @@ class CommissionInvoice {
 }
 
 List<String> _readStringList(dynamic value) {
-  if (value is! List) return [];
+  if (value is! Iterable) return const [];
 
   return value
-      .whereType<String>()
-      .map((item) => item.trim())
+      .map((item) => item.toString().trim())
       .where((item) => item.isNotEmpty)
       .toSet()
-      .toList();
+      .toList(growable: false);
 }
 
-String _asString(dynamic value, {String fallback = ''}) {
-  if (value == null) return fallback;
-
-  final result = value.toString().trim();
+String _asString(
+  dynamic value, {
+  String fallback = '',
+}) {
+  final result = value?.toString().trim() ?? '';
   return result.isEmpty ? fallback : result;
 }
 
-double _asDouble(dynamic value, {double fallback = 0}) {
+double _asDouble(
+  dynamic value, {
+  double fallback = 0,
+}) {
   if (value is num) return value.toDouble();
 
-  if (value is String) {
-    return double.tryParse(value.trim()) ?? fallback;
-  }
-
-  return fallback;
+  return double.tryParse(
+        value?.toString().trim() ?? '',
+      ) ??
+      fallback;
 }
 
-int _asInt(dynamic value, {int fallback = 0}) {
+int _asInt(
+  dynamic value, {
+  int fallback = 0,
+}) {
   if (value is num) return value.toInt();
 
-  if (value is String) {
-    return int.tryParse(value.trim()) ?? fallback;
-  }
+  return int.tryParse(
+        value?.toString().trim() ?? '',
+      ) ??
+      fallback;
+}
 
-  return fallback;
+double _normalizeRate(double value) {
+  if (value > 1) return value / 100;
+  if (value < 0) return 0;
+  return value;
 }
 
 DateTime? _asDateTime(dynamic value) {
@@ -265,7 +353,14 @@ DateTime? _asDateTime(dynamic value) {
     return DateTime.fromMillisecondsSinceEpoch(value);
   }
 
-  if (value is String) return DateTime.tryParse(value);
+  if (value is String) {
+    return DateTime.tryParse(value);
+  }
 
   return null;
+}
+
+Timestamp? _timestamp(DateTime? value) {
+  if (value == null) return null;
+  return Timestamp.fromDate(value);
 }

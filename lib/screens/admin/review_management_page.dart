@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../model/review.dart';
 import '../../services/review_service.dart';
+import 'violation_details_page.dart';
+import 'violation_form_page.dart';
 import 'widgets/review_alert_card.dart';
 import 'widgets/review_statistics.dart';
 
@@ -47,6 +49,16 @@ class _AdminReviewManagementPageState
   ) async {
     if (_processingId != null) return;
 
+    if (action == ReviewAdminAction.createViolation) {
+      await _openViolationForm(review);
+      return;
+    }
+
+    if (action == ReviewAdminAction.viewViolation) {
+      await _openViolationDetails(review);
+      return;
+    }
+
     if (action == ReviewAdminAction.hide ||
         action == ReviewAdminAction.publish) {
       await _changeVisibility(
@@ -86,6 +98,15 @@ class _AdminReviewManagementPageState
 
     if (configuration == null) return;
 
+    if (review.hasViolationRecord &&
+        (action == ReviewAdminAction.resolve ||
+            action == ReviewAdminAction.dismiss)) {
+      _showMessage(
+        'Đánh giá đã có biên bản. Hãy xử lý tại trang biên bản.',
+      );
+      return;
+    }
+
     final note = await _requestAdminNote(
       title: configuration.title,
       hint: configuration.hint,
@@ -101,7 +122,8 @@ class _AdminReviewManagementPageState
         reviewId: review.id,
         moderationStatus: configuration.status,
         adminNote: note,
-        providerActionRequired: configuration.providerAction,
+        providerActionRequired:
+            configuration.providerAction,
       );
 
       if (!mounted) return;
@@ -116,69 +138,62 @@ class _AdminReviewManagementPageState
     }
   }
 
+  Future<void> _openViolationForm(
+    ReviewModel review,
+  ) async {
+    if (review.hasViolationRecord) {
+      await _openViolationDetails(review);
+      return;
+    }
+
+    if (review.severity != ReviewSeverity.critical) {
+      _showMessage(
+        'Chỉ đánh giá nghiêm trọng mới được lập biên bản.',
+      );
+      return;
+    }
+
+    await Navigator.push<String>(
+      context,
+      MaterialPageRoute<String>(
+        builder: (_) => ViolationFormPage(review: review),
+      ),
+    );
+  }
+
+  Future<void> _openViolationDetails(
+    ReviewModel review,
+  ) async {
+    final violationId = review.violationRecordId.trim();
+
+    if (violationId.isEmpty) {
+      _showMessage('Đánh giá chưa có biên bản vi phạm.');
+      return;
+    }
+
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => ViolationDetailsPage(
+          violationId: violationId,
+        ),
+      ),
+    );
+  }
+
   Future<String?> _requestAdminNote({
     required String title,
     required String hint,
     required String initialValue,
-  }) async {
-    final controller = TextEditingController(text: initialValue);
-
-    final result = await showDialog<String>(
+  }) {
+    return showDialog<String>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          icon: const Icon(Icons.admin_panel_settings_outlined),
-          title: Text(title),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: TextField(
-              controller: controller,
-              autofocus: true,
-              minLines: 4,
-              maxLines: 8,
-              maxLength: 1500,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                labelText: 'Ghi chú nội bộ',
-                hintText: hint,
-                alignLabelWithHint: true,
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Hủy'),
-            ),
-            FilledButton.icon(
-              onPressed: () {
-                final value = controller.text.trim();
-
-                if (value.length < 3) {
-                  ScaffoldMessenger.of(dialogContext)
-                    ..hideCurrentSnackBar()
-                    ..showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Ghi chú phải có ít nhất 3 ký tự.',
-                        ),
-                      ),
-                    );
-                  return;
-                }
-
-                Navigator.pop(dialogContext, value);
-              },
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('Lưu'),
-            ),
-          ],
-        );
-      },
+      builder: (_) => _AdminNoteDialog(
+        title: title,
+        hint: hint,
+        initialValue: initialValue,
+      ),
     );
-
-    controller.dispose();
-    return result;
   }
 
   Future<void> _changeVisibility(
@@ -200,17 +215,22 @@ class _AdminReviewManagementPageState
           content: Text(
             visible
                 ? 'Đánh giá sẽ xuất hiện trở lại trên ứng dụng.'
-                : 'Chỉ nên ẩn đánh giá vi phạm nội dung, spam hoặc '
-                    'xúc phạm. Không nên ẩn chỉ vì khách đánh giá thấp.',
+                : 'Chỉ nên ẩn đánh giá vi phạm nội dung, spam '
+                    'hoặc xúc phạm. Không nên ẩn chỉ vì khách '
+                    'đánh giá thấp.',
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, false),
               child: const Text('Hủy'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text(visible ? 'Hiện lại' : 'Ẩn đánh giá'),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, true),
+              child: Text(
+                visible ? 'Hiện lại' : 'Ẩn đánh giá',
+              ),
             ),
           ],
         );
@@ -230,7 +250,9 @@ class _AdminReviewManagementPageState
       if (!mounted) return;
 
       _showMessage(
-        visible ? 'Đã hiện lại đánh giá.' : 'Đã ẩn đánh giá.',
+        visible
+            ? 'Đã hiện lại đánh giá.'
+            : 'Đã ẩn đánh giá.',
       );
     } catch (error) {
       if (!mounted) return;
@@ -245,9 +267,7 @@ class _AdminReviewManagementPageState
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _clearFilters() {
@@ -265,7 +285,8 @@ class _AdminReviewManagementPageState
     return StreamBuilder<List<ReviewModel>>(
       stream: _service.watchAllReviewsForAdmin(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting &&
+        if (snapshot.connectionState ==
+                ConnectionState.waiting &&
             !snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(),
@@ -281,8 +302,9 @@ class _AdminReviewManagementPageState
         }
 
         final allReviews = snapshot.data ?? [];
-        final filteredReviews = allReviews.where(_matchesFilter).toList()
-          ..sort(_compareReviews);
+        final filteredReviews =
+            allReviews.where(_matchesFilter).toList()
+              ..sort(_compareReviews);
 
         return CustomScrollView(
           keyboardDismissBehavior:
@@ -306,7 +328,12 @@ class _AdminReviewManagementPageState
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  14,
+                  16,
+                  32,
+                ),
                 sliver: SliverList.separated(
                   itemCount: filteredReviews.length,
                   separatorBuilder: (_, __) =>
@@ -316,7 +343,8 @@ class _AdminReviewManagementPageState
 
                     return AdminReviewAlertCard(
                       review: review,
-                      processing: _processingId == review.id,
+                      processing:
+                          _processingId == review.id,
                       onAction: (action) {
                         _handleAction(review, action);
                       },
@@ -335,80 +363,75 @@ class _AdminReviewManagementPageState
     required int resultCount,
   }) {
     final colors = Theme.of(context).colorScheme;
+
     final hasFilters = _search.trim().isNotEmpty ||
         _severity != 'all' ||
         _status != 'all';
 
-    return DecoratedBox(
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       decoration: BoxDecoration(
         color: colors.surface,
         border: Border(
           bottom: BorderSide(color: colors.outlineVariant),
         ),
       ),
-      child: SafeArea(
-        top: false,
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AdminReviewStatistics(reviews: allReviews),
-              const SizedBox(height: 16),
-              SearchBar(
-                controller: _searchController,
-                hintText: 'Tìm khách sạn, phòng, khách hàng...',
-                leading: const Icon(Icons.search_rounded),
-                onChanged: (value) {
-                  setState(() => _search = value);
-                },
-                trailing: [
-                  if (_search.isNotEmpty)
-                    IconButton(
-                      tooltip: 'Xóa tìm kiếm',
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _search = '');
-                      },
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _buildResponsiveFilters(),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(
-                    Icons.manage_search_outlined,
-                    size: 19,
-                    color: colors.primary,
-                  ),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: Text(
-                      '$resultCount đánh giá phù hợp',
-                      style: TextStyle(
-                        color: colors.onSurfaceVariant,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  if (hasFilters)
-                    TextButton.icon(
-                      onPressed: _clearFilters,
-                      icon: const Icon(
-                        Icons.filter_alt_off_outlined,
-                        size: 19,
-                      ),
-                      label: const Text('Xóa lọc'),
-                    ),
-                ],
-              ),
+      child: Column(
+        children: [
+          AdminReviewStatistics(reviews: allReviews),
+          const SizedBox(height: 16),
+          SearchBar(
+            controller: _searchController,
+            hintText:
+                'Tìm khách sạn, phòng, khách hàng...',
+            leading: const Icon(Icons.search_rounded),
+            onChanged: (value) {
+              setState(() => _search = value);
+            },
+            trailing: [
+              if (_search.isNotEmpty)
+                IconButton(
+                  tooltip: 'Xóa tìm kiếm',
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _search = '');
+                  },
+                  icon: const Icon(Icons.close_rounded),
+                ),
             ],
           ),
-        ),
+          const SizedBox(height: 12),
+          _buildResponsiveFilters(),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Icon(
+                Icons.manage_search_outlined,
+                size: 19,
+                color: colors.primary,
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  '$resultCount đánh giá phù hợp',
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (hasFilters)
+                TextButton.icon(
+                  onPressed: _clearFilters,
+                  icon: const Icon(
+                    Icons.filter_alt_off_outlined,
+                    size: 18,
+                  ),
+                  label: const Text('Xóa lọc'),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -427,7 +450,6 @@ class _AdminReviewManagementPageState
         }
 
         return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(child: _buildSeverityFilter()),
             const SizedBox(width: 12),
@@ -450,38 +472,23 @@ class _AdminReviewManagementPageState
       items: const [
         DropdownMenuItem(
           value: 'all',
-          child: Text(
-            'Tất cả mức độ',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Tất cả mức độ'),
         ),
         DropdownMenuItem(
           value: ReviewSeverity.critical,
-          child: Text(
-            'Nghiêm trọng',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Nghiêm trọng'),
         ),
         DropdownMenuItem(
           value: ReviewSeverity.high,
-          child: Text(
-            'Mức cao',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Mức cao'),
         ),
         DropdownMenuItem(
           value: ReviewSeverity.warning,
-          child: Text(
-            'Cần lưu ý',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Cần lưu ý'),
         ),
         DropdownMenuItem(
           value: ReviewSeverity.normal,
-          child: Text(
-            'Bình thường',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Bình thường'),
         ),
       ],
       onChanged: (value) {
@@ -504,59 +511,35 @@ class _AdminReviewManagementPageState
       items: const [
         DropdownMenuItem(
           value: 'all',
-          child: Text(
-            'Tất cả trạng thái',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Tất cả trạng thái'),
         ),
         DropdownMenuItem(
           value: 'open',
-          child: Text(
-            'Chưa hoàn tất',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Chưa hoàn tất'),
         ),
         DropdownMenuItem(
           value: ReviewModerationStatus.notRequired,
-          child: Text(
-            'Không cần xử lý',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Không cần xử lý'),
         ),
         DropdownMenuItem(
           value: ReviewModerationStatus.pendingReview,
-          child: Text(
-            'Chờ xem xét',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Chờ xem xét'),
         ),
         DropdownMenuItem(
           value: ReviewModerationStatus.investigating,
-          child: Text(
-            'Đang xác minh',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Đang xác minh'),
         ),
         DropdownMenuItem(
           value: ReviewModerationStatus.providerContacted,
-          child: Text(
-            'Đã liên hệ nhà cung cấp',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Đã liên hệ nhà cung cấp'),
         ),
         DropdownMenuItem(
           value: ReviewModerationStatus.resolved,
-          child: Text(
-            'Đã xử lý',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Đã xử lý'),
         ),
         DropdownMenuItem(
           value: ReviewModerationStatus.dismissed,
-          child: Text(
-            'Không ghi nhận vi phạm',
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text('Không ghi nhận vi phạm'),
         ),
       ],
       onChanged: (value) {
@@ -583,7 +566,8 @@ class _AdminReviewManagementPageState
     final matchesStatus = switch (_status) {
       'all' => true,
       'open' =>
-        review.moderationStatus != ReviewModerationStatus.resolved &&
+        review.moderationStatus !=
+                ReviewModerationStatus.resolved &&
             review.moderationStatus !=
                 ReviewModerationStatus.dismissed &&
             review.moderationStatus !=
@@ -591,7 +575,98 @@ class _AdminReviewManagementPageState
       _ => review.moderationStatus == _status,
     };
 
-    return matchesSearch && matchesSeverity && matchesStatus;
+    return matchesSearch &&
+        matchesSeverity &&
+        matchesStatus;
+  }
+}
+
+class _AdminNoteDialog extends StatefulWidget {
+  const _AdminNoteDialog({
+    required this.title,
+    required this.hint,
+    required this.initialValue,
+  });
+
+  final String title;
+  final String hint;
+  final String initialValue;
+
+  @override
+  State<_AdminNoteDialog> createState() =>
+      _AdminNoteDialogState();
+}
+
+class _AdminNoteDialogState
+    extends State<_AdminNoteDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.initialValue,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      icon: const Icon(
+        Icons.admin_panel_settings_outlined,
+      ),
+      title: Text(widget.title),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: TextField(
+          controller: _controller,
+          autofocus: true,
+          minLines: 4,
+          maxLines: 8,
+          maxLength: 1500,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: InputDecoration(
+            labelText: 'Ghi chú nội bộ',
+            hintText: widget.hint,
+            alignLabelWithHint: true,
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Hủy'),
+        ),
+        FilledButton.icon(
+          onPressed: () {
+            final value = _controller.text.trim();
+
+            if (value.length < 3) {
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Ghi chú phải có ít nhất 3 ký tự.',
+                    ),
+                  ),
+                );
+              return;
+            }
+
+            Navigator.pop(context, value);
+          },
+          icon: const Icon(Icons.save_outlined),
+          label: const Text('Lưu'),
+        ),
+      ],
+    );
   }
 }
 
@@ -613,45 +688,28 @@ class _EmptyState extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: colors.primaryContainer,
-                  shape: BoxShape.circle,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(17),
-                  child: Icon(
-                    icon,
-                    size: 36,
-                    color: colors.onPrimaryContainer,
-                  ),
-                ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 52, color: colors.primary),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
               ),
-              const SizedBox(height: 16),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
-                ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: colors.onSurfaceVariant,
               ),
-              const SizedBox(height: 7),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: colors.onSurfaceVariant,
-                  height: 1.4,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

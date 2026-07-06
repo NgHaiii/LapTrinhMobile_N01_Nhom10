@@ -145,6 +145,88 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "violationRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "providerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "violationRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "violationRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "providerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "commissionInvoices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "providerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "year",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "month",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "commissionInvoices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "year",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "month",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -199,6 +281,11 @@
       "indexes": []
     },
     {
+      "collectionGroup": "commissionInvoices",
+      "fieldPath": "violationRecordIds",
+      "indexes": []
+    },
+    {
       "collectionGroup": "holidayCalendars",
       "fieldPath": "holidays",
       "indexes": []
@@ -215,6 +302,31 @@
     },
     {
       "collectionGroup": "reviews",
+      "fieldPath": "adminNote",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "violationRecords",
+      "fieldPath": "description",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "violationRecords",
+      "fieldPath": "evidenceUrls",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "violationRecords",
+      "fieldPath": "providerExplanation",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "violationRecords",
+      "fieldPath": "appealNote",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "violationRecords",
       "fieldPath": "adminNote",
       "indexes": []
     }

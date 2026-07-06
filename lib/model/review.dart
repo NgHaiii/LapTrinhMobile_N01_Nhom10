@@ -8,12 +8,7 @@ abstract final class ReviewStatus {
 
   static String normalize(dynamic value) {
     final result = value?.toString().trim().toLowerCase();
-
-    if (result != null && values.contains(result)) {
-      return result;
-    }
-
-    return published;
+    return values.contains(result) ? result! : published;
   }
 }
 
@@ -23,25 +18,39 @@ abstract final class ReviewSeverity {
   static const high = 'high';
   static const critical = 'critical';
 
-  static const values = {
-    normal,
-    warning,
-    high,
-    critical,
-  };
+  static const values = {normal, warning, high, critical};
 
-  static String fromRating(int rating) {
-    return switch (rating) {
-      1 => critical,
-      2 => high,
-      3 => warning,
-      _ => normal,
-    };
+  static String fromContent(int rating, String comment) {
+    if (rating == 1) return critical;
+
+    final normalized = comment.toLowerCase();
+    const seriousKeywords = [
+      'lừa đảo',
+      'đe dọa',
+      'hành hung',
+      'trộm',
+      'mất cắp',
+      'mất an toàn',
+      'nguy hiểm',
+      'quấy rối',
+      'không đúng phòng',
+      'không có phòng',
+    ];
+
+    final hasSeriousContent = seriousKeywords.any(
+      normalized.contains,
+    );
+
+    if (rating <= 2 && hasSeriousContent) return critical;
+    if (rating == 2) return high;
+    if (rating == 3) return warning;
+    return normal;
   }
 
   static String normalize(
     dynamic value, {
     required int rating,
+    required String comment,
   }) {
     final result = value?.toString().trim().toLowerCase();
 
@@ -49,7 +58,7 @@ abstract final class ReviewSeverity {
       return result;
     }
 
-    return fromRating(rating);
+    return fromContent(rating, comment);
   }
 }
 
@@ -70,13 +79,15 @@ abstract final class ReviewModerationStatus {
     dismissed,
   };
 
-  static String fromRating(int rating) {
-    return rating <= 3 ? pendingReview : notRequired;
+  static String fromSeverity(String severity) {
+    return severity == ReviewSeverity.normal
+        ? notRequired
+        : pendingReview;
   }
 
   static String normalize(
     dynamic value, {
-    required int rating,
+    required String severity,
   }) {
     final result = value?.toString().trim().toLowerCase();
 
@@ -84,7 +95,7 @@ abstract final class ReviewModerationStatus {
       return result;
     }
 
-    return fromRating(rating);
+    return fromSeverity(severity);
   }
 }
 
@@ -110,6 +121,7 @@ class ReviewModel {
     this.adminNote = '',
     this.assignedAdminId = '',
     this.providerActionRequired = false,
+    this.violationRecordId = '',
     this.createdAt,
     this.updatedAt,
     this.repliedAt,
@@ -124,7 +136,6 @@ class ReviewModel {
   final String customerName;
   final String providerId;
 
-  // Đánh giá thuộc về phòng.
   final String hotelId;
   final String hotelName;
   final String roomId;
@@ -142,34 +153,35 @@ class ReviewModel {
   final String assignedAdminId;
   final bool providerActionRequired;
 
+  final String violationRecordId;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final DateTime? repliedAt;
   final DateTime? reviewedAt;
   final DateTime? resolvedAt;
 
-  bool get isPublished {
-    return status == ReviewStatus.published;
-  }
+  bool get isPublished => status == ReviewStatus.published;
 
   bool get hasProviderReply {
     return providerReply.trim().isNotEmpty;
   }
 
+  bool get hasViolationRecord {
+    return violationRecordId.trim().isNotEmpty;
+  }
+
   bool get requiresModeration {
     return moderationStatus !=
             ReviewModerationStatus.notRequired &&
-        moderationStatus !=
-            ReviewModerationStatus.resolved &&
-        moderationStatus !=
-            ReviewModerationStatus.dismissed;
+        moderationStatus != ReviewModerationStatus.resolved &&
+        moderationStatus != ReviewModerationStatus.dismissed;
   }
 
   bool get isModerationClosed {
     return moderationStatus ==
             ReviewModerationStatus.resolved ||
-        moderationStatus ==
-            ReviewModerationStatus.dismissed;
+        moderationStatus == ReviewModerationStatus.dismissed;
   }
 
   bool get isCritical {
@@ -181,6 +193,13 @@ class ReviewModel {
     String id,
   ) {
     final rating = _normalizeRating(data['rating']);
+    final comment = _asString(data['comment']);
+
+    final severity = ReviewSeverity.normalize(
+      data['severity'],
+      rating: rating,
+      comment: comment,
+    );
 
     return ReviewModel(
       id: id,
@@ -206,27 +225,23 @@ class ReviewModel {
         fallback: 'Phòng',
       ),
       rating: rating,
-      comment: _asString(data['comment']),
-      providerReply: _asString(
-        data['providerReply'],
-      ),
+      comment: comment,
+      providerReply: _asString(data['providerReply']),
       status: ReviewStatus.normalize(data['status']),
-      severity: ReviewSeverity.normalize(
-        data['severity'],
-        rating: rating,
-      ),
-      moderationStatus:
-          ReviewModerationStatus.normalize(
+      severity: severity,
+      moderationStatus: ReviewModerationStatus.normalize(
         data['moderationStatus'],
-        rating: rating,
+        severity: severity,
       ),
       adminNote: _asString(data['adminNote']),
-      assignedAdminId: _asString(
-        data['assignedAdminId'],
-      ),
+      assignedAdminId: _asString(data['assignedAdminId']),
       providerActionRequired: _asBool(
         data['providerActionRequired'],
-        fallback: rating <= 2,
+        fallback: severity == ReviewSeverity.critical ||
+            severity == ReviewSeverity.high,
+      ),
+      violationRecordId: _asString(
+        data['violationRecordId'],
       ),
       createdAt: _asDateTime(data['createdAt']),
       updatedAt: _asDateTime(data['updatedAt']),
@@ -237,6 +252,12 @@ class ReviewModel {
   }
 
   Map<String, dynamic> toMap() {
+    final normalizedSeverity = ReviewSeverity.normalize(
+      severity,
+      rating: rating,
+      comment: comment,
+    );
+
     return {
       'targetType': 'room',
       'bookingId': bookingId.trim(),
@@ -252,19 +273,15 @@ class ReviewModel {
       'comment': comment.trim(),
       'providerReply': providerReply.trim(),
       'status': ReviewStatus.normalize(status),
-      'severity': ReviewSeverity.normalize(
-        severity,
-        rating: rating,
-      ),
-      'moderationStatus':
-          ReviewModerationStatus.normalize(
+      'severity': normalizedSeverity,
+      'moderationStatus': ReviewModerationStatus.normalize(
         moderationStatus,
-        rating: rating,
+        severity: normalizedSeverity,
       ),
       'adminNote': adminNote.trim(),
       'assignedAdminId': assignedAdminId.trim(),
-      'providerActionRequired':
-          providerActionRequired,
+      'providerActionRequired': providerActionRequired,
+      'violationRecordId': violationRecordId.trim(),
       'createdAt': _timestamp(createdAt),
       'updatedAt': _timestamp(updatedAt),
       'repliedAt': _timestamp(repliedAt),
@@ -283,12 +300,14 @@ class ReviewModel {
     String? adminNote,
     String? assignedAdminId,
     bool? providerActionRequired,
+    String? violationRecordId,
     DateTime? updatedAt,
     DateTime? repliedAt,
     DateTime? reviewedAt,
     DateTime? resolvedAt,
     bool clearReply = false,
     bool clearResolution = false,
+    bool clearViolationRecord = false,
   }) {
     return ReviewModel(
       id: id,
@@ -314,13 +333,14 @@ class ReviewModel {
       assignedAdminId:
           assignedAdminId ?? this.assignedAdminId,
       providerActionRequired:
-          providerActionRequired ??
-          this.providerActionRequired,
+          providerActionRequired ?? this.providerActionRequired,
+      violationRecordId: clearViolationRecord
+          ? ''
+          : violationRecordId ?? this.violationRecordId,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      repliedAt: clearReply
-          ? null
-          : repliedAt ?? this.repliedAt,
+      repliedAt:
+          clearReply ? null : repliedAt ?? this.repliedAt,
       reviewedAt: reviewedAt ?? this.reviewedAt,
       resolvedAt: clearResolution
           ? null
@@ -329,13 +349,8 @@ class ReviewModel {
   }
 }
 
-String _asString(
-  dynamic value, {
-  String fallback = '',
-}) {
-  if (value == null) return fallback;
-
-  final result = value.toString().trim();
+String _asString(dynamic value, {String fallback = ''}) {
+  final result = value?.toString().trim() ?? '';
   return result.isEmpty ? fallback : result;
 }
 
@@ -347,10 +362,7 @@ int _normalizeRating(dynamic value) {
   return result.clamp(1, 5);
 }
 
-bool _asBool(
-  dynamic value, {
-  bool fallback = false,
-}) {
+bool _asBool(dynamic value, {bool fallback = false}) {
   if (value is bool) return value;
   if (value is num) return value != 0;
 
@@ -370,9 +382,7 @@ DateTime? _asDateTime(dynamic value) {
     return DateTime.fromMillisecondsSinceEpoch(value);
   }
 
-  if (value is String) {
-    return DateTime.tryParse(value);
-  }
+  if (value is String) return DateTime.tryParse(value);
 
   return null;
 }

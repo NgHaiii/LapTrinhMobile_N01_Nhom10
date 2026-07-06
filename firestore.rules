@@ -72,6 +72,32 @@ service cloud.firestore {
       ];
     }
 
+    function validViolationStatus(status) {
+      return status in [
+        'draft',
+        'waitingProvider',
+        'investigating',
+        'confirmed',
+        'noPenalty',
+        'appealed',
+        'cancelled',
+        'paid'
+      ];
+    }
+
+    function validViolationType(type) {
+  return type in [
+    'serviceQuality',
+    'incorrectInformation',
+    'hygiene',
+    'customerSafety',
+    'paymentDispute',
+    'providerBehavior',
+    'bookingViolation',
+    'other'
+  ];
+}
+
     function paymentProfilePath(providerId) {
       return /databases/$(database)
         /documents/providerPaymentProfiles/$(providerId);
@@ -1063,21 +1089,28 @@ match /reviews/{reviewId} {
     return get(reviewBookingPath()).data;
   }
 
-  function expectedSeverity(rating) {
-    return rating == 1
-      ? 'critical'
-      : rating == 2
-        ? 'high'
-        : rating == 3
-          ? 'warning'
-          : 'normal';
-  }
+  function validSeverityForRating() {
+  let rating = request.resource.data.rating;
+  let severity = request.resource.data.severity;
 
-  function expectedModerationStatus(rating) {
-    return rating <= 3
-      ? 'pending_review'
-      : 'not_required';
-  }
+  return rating == 1
+    ? severity == 'critical'
+    : rating == 2
+      ? severity in ['high', 'critical']
+      : rating == 3
+        ? severity == 'warning'
+        : severity == 'normal';
+}
+
+function expectedModerationStatus(severity) {
+  return severity == 'normal'
+    ? 'not_required'
+    : 'pending_review';
+}
+
+function expectedProviderActionRequired(severity) {
+  return severity in ['high', 'critical'];
+}
 
   function validReviewRating() {
     return request.resource.data.rating is int
@@ -1132,6 +1165,7 @@ match /reviews/{reviewId} {
         'adminNote',
         'assignedAdminId',
         'providerActionRequired',
+        'violationRecordId',
         'createdAt',
         'updatedAt',
         'repliedAt',
@@ -1167,22 +1201,21 @@ match /reviews/{reviewId} {
       && request.resource.data.status == 'published'
 
       && validSeverity()
-      && request.resource.data.severity
-        == expectedSeverity(
-          request.resource.data.rating
-        )
+&& validSeverityForRating()
 
-      && validModerationStatus()
-      && request.resource.data.moderationStatus
-        == expectedModerationStatus(
-          request.resource.data.rating
-        )
+&& validModerationStatus()
+&& request.resource.data.moderationStatus
+  == expectedModerationStatus(
+    request.resource.data.severity
+  )
 
-      && request.resource.data.adminNote == ''
-      && request.resource.data.assignedAdminId == ''
-      && request.resource.data.providerActionRequired
-        == (request.resource.data.rating <= 2)
-
+&& request.resource.data.adminNote == ''
+&& request.resource.data.assignedAdminId == ''
+&& request.resource.data.providerActionRequired
+  == expectedProviderActionRequired(
+    request.resource.data.severity
+  )
+&& request.resource.data.violationRecordId == ''
       && request.resource.data.createdAt is timestamp
       && request.resource.data.updatedAt is timestamp
       && request.resource.data.repliedAt == null
@@ -1236,20 +1269,34 @@ match /reviews/{reviewId} {
         == resource.data.createdAt
       && request.resource.data.repliedAt
         == resource.data.repliedAt
+      && resource.data.get(
+    'violationRecordId',
+    ''
+  ) == ''
+&& request.resource.data.get(
+    'violationRecordId',
+    ''
+  ) == resource.data.get(
+    'violationRecordId',
+    ''
+  )
 
       && validReviewRating()
       && validReviewComment()
 
-      && request.resource.data.severity
-        == expectedSeverity(
-          request.resource.data.rating
-        )
-      && request.resource.data.moderationStatus
-        == expectedModerationStatus(
-          request.resource.data.rating
-        )
-      && request.resource.data.providerActionRequired
-        == (request.resource.data.rating <= 2)
+      && validSeverity()
+&& validSeverityForRating()
+&& validModerationStatus()
+
+&& request.resource.data.moderationStatus
+  == expectedModerationStatus(
+    request.resource.data.severity
+  )
+
+&& request.resource.data.providerActionRequired
+  == expectedProviderActionRequired(
+    request.resource.data.severity
+  )
 
       && request.resource.data.adminNote == ''
       && request.resource.data.assignedAdminId == ''
@@ -1317,6 +1364,13 @@ match /reviews/{reviewId} {
         == resource.data.assignedAdminId
       && request.resource.data.providerActionRequired
         == resource.data.providerActionRequired
+        && request.resource.data.get(
+    'violationRecordId',
+    ''
+  ) == resource.data.get(
+    'violationRecordId',
+    ''
+  )
       && request.resource.data.reviewedAt
         == resource.data.reviewedAt
       && request.resource.data.resolvedAt
@@ -1366,6 +1420,309 @@ match /reviews/{reviewId} {
     || providerRepliesToReview();
 
   allow delete: if isAdmin();
+}
+
+     /*
+ * VIOLATION RECORDS
+ */
+match /violationRecords/{violationId} {
+  function validViolationCreateData() {
+    return request.resource.data.keys().hasOnly([
+        'reviewId',
+        'bookingId',
+        'hotelId',
+        'roomId',
+        'providerId',
+        'customerId',
+        'hotelName',
+        'roomNumber',
+        'customerName',
+        'severity',
+        'violationType',
+        'title',
+        'description',
+        'evidenceUrls',
+        'bookingAmount',
+        'baseCommissionRate',
+        'penaltyRate',
+        'penaltyAmount',
+        'status',
+        'providerExplanation',
+        'appealNote',
+        'adminNote',
+        'createdBy',
+        'commissionApplied',
+        'commissionInvoiceId',
+        'createdAt',
+        'updatedAt',
+        'issuedAt',
+        'confirmedAt',
+        'resolvedAt'
+      ])
+      && request.resource.data.reviewId is string
+      && request.resource.data.reviewId.size() > 0
+      && request.resource.data.bookingId is string
+      && request.resource.data.bookingId.size() > 0
+      && request.resource.data.providerId is string
+      && request.resource.data.providerId.size() > 0
+      && request.resource.data.customerId is string
+      && request.resource.data.violationType is string
+      && validViolationType(request.resource.data.violationType)
+      && request.resource.data.title is string
+      && request.resource.data.title.size() >= 5
+      && request.resource.data.title.size() <= 150
+      && request.resource.data.description is string
+      && request.resource.data.description.size() >= 20
+      && request.resource.data.description.size() <= 2000
+      && request.resource.data.evidenceUrls is list
+      && request.resource.data.bookingAmount is number
+      && request.resource.data.bookingAmount > 0
+      && request.resource.data.baseCommissionRate is number
+      && request.resource.data.baseCommissionRate >= 0
+      && request.resource.data.baseCommissionRate <= 1
+      && request.resource.data.penaltyRate == 0.05
+      && request.resource.data.penaltyAmount == request.resource.data.bookingAmount * 0.05
+      && request.resource.data.status in [
+        'draft',
+        'waitingProvider'
+      ]
+      && (
+        (
+          request.resource.data.status == 'draft'
+          && request.resource.data.issuedAt == null
+        )
+        || (
+          request.resource.data.status == 'waitingProvider'
+          && request.resource.data.issuedAt is timestamp
+        )
+      )
+      && request.resource.data.providerExplanation == ''
+      && request.resource.data.appealNote == ''
+      && request.resource.data.adminNote == ''
+      && request.resource.data.createdBy == request.auth.uid
+      && request.resource.data.commissionApplied == false
+      && request.resource.data.commissionInvoiceId == null
+      && request.resource.data.createdAt is timestamp
+      && request.resource.data.updatedAt is timestamp
+      && request.resource.data.confirmedAt == null
+      && request.resource.data.resolvedAt == null;
+  }
+
+  function providerSubmitsExplanation() {
+    let changed = request.resource.data.diff(resource.data).affectedKeys();
+
+    return isProvider()
+      && resource.data.providerId == request.auth.uid
+      && resource.data.status in [
+        'waitingProvider',
+        'investigating'
+      ]
+      && request.resource.data.status == 'investigating'
+      && request.resource.data.providerExplanation is string
+      && request.resource.data.providerExplanation.size() >= 10
+      && request.resource.data.providerExplanation.size() <= 2000
+      && request.resource.data.updatedAt is timestamp
+      && changed.hasOnly([
+        'providerExplanation',
+        'status',
+        'updatedAt'
+      ]);
+  }
+
+  function providerSubmitsAppeal() {
+    let changed = request.resource.data.diff(resource.data).affectedKeys();
+
+    return isProvider()
+      && resource.data.providerId == request.auth.uid
+      && resource.data.status == 'confirmed'
+      && resource.data.commissionApplied == false
+      && request.resource.data.status == 'appealed'
+      && request.resource.data.appealNote is string
+      && request.resource.data.appealNote.size() >= 10
+      && request.resource.data.appealNote.size() <= 2000
+      && request.resource.data.updatedAt is timestamp
+      && changed.hasOnly([
+        'appealNote',
+        'status',
+        'updatedAt'
+      ]);
+  }
+
+  function validAdminViolationTransition() {
+    let oldStatus = resource.data.status;
+    let newStatus = request.resource.data.status;
+
+    return oldStatus == newStatus
+      || (
+        oldStatus == 'draft'
+        && newStatus in [
+          'waitingProvider',
+          'cancelled'
+        ]
+      )
+      || (
+        oldStatus == 'investigating'
+        && newStatus in [
+          'confirmed',
+          'noPenalty'
+        ]
+      )
+      || (
+        oldStatus == 'appealed'
+        && newStatus in [
+          'confirmed',
+          'noPenalty'
+        ]
+      )
+      || (
+        oldStatus == 'confirmed'
+        && newStatus == 'paid'
+      );
+  }
+
+  function unchangedViolationBaseFields() {
+    return request.resource.data.reviewId == resource.data.reviewId
+      && request.resource.data.bookingId == resource.data.bookingId
+      && request.resource.data.hotelId == resource.data.hotelId
+      && request.resource.data.roomId == resource.data.roomId
+      && request.resource.data.providerId == resource.data.providerId
+      && request.resource.data.customerId == resource.data.customerId
+      && request.resource.data.hotelName == resource.data.hotelName
+      && request.resource.data.roomNumber == resource.data.roomNumber
+      && request.resource.data.customerName == resource.data.customerName
+      && request.resource.data.severity == resource.data.severity
+      && request.resource.data.violationType == resource.data.violationType
+      && request.resource.data.title == resource.data.title
+      && request.resource.data.description == resource.data.description
+      && request.resource.data.evidenceUrls == resource.data.evidenceUrls
+      && request.resource.data.createdBy == resource.data.createdBy
+      && request.resource.data.createdAt == resource.data.createdAt
+      && request.resource.data.bookingAmount == resource.data.bookingAmount
+      && request.resource.data.baseCommissionRate == resource.data.baseCommissionRate
+      && request.resource.data.penaltyRate == resource.data.penaltyRate
+      && request.resource.data.penaltyAmount == resource.data.penaltyAmount;
+  }
+
+  function adminUpdatesViolation() {
+    let changed = request.resource.data.diff(resource.data).affectedKeys();
+    let oldStatus = resource.data.status;
+    let newStatus = request.resource.data.status;
+
+    return isAdmin()
+      && request.resource.data.keys().hasOnly(resource.data.keys())
+      && validViolationStatus(newStatus)
+      && validAdminViolationTransition()
+      && unchangedViolationBaseFields()
+      && request.resource.data.providerExplanation == resource.data.providerExplanation
+      && request.resource.data.appealNote == resource.data.appealNote
+      && request.resource.data.updatedAt is timestamp
+      && (
+        (
+          oldStatus == 'draft'
+          && newStatus == 'waitingProvider'
+          && request.resource.data.issuedAt is timestamp
+          && request.resource.data.adminNote == resource.data.adminNote
+          && request.resource.data.confirmedAt == null
+          && request.resource.data.resolvedAt == null
+          && request.resource.data.commissionApplied == false
+          && request.resource.data.commissionInvoiceId == null
+          && changed.hasOnly([
+            'status',
+            'issuedAt',
+            'updatedAt'
+          ])
+        )
+        || (
+          oldStatus == 'draft'
+          && newStatus == 'cancelled'
+          && request.resource.data.adminNote is string
+          && request.resource.data.adminNote.size() >= 5
+          && request.resource.data.confirmedAt == null
+          && request.resource.data.resolvedAt is timestamp
+          && request.resource.data.commissionApplied == false
+          && request.resource.data.commissionInvoiceId == null
+          && changed.hasOnly([
+            'status',
+            'adminNote',
+            'resolvedAt',
+            'updatedAt'
+          ])
+        )
+        || (
+          oldStatus in [
+            'investigating',
+            'appealed'
+          ]
+          && newStatus == 'confirmed'
+          && request.resource.data.adminNote is string
+          && request.resource.data.adminNote.size() >= 5
+          && request.resource.data.confirmedAt is timestamp
+          && request.resource.data.resolvedAt == null
+          && request.resource.data.commissionApplied == false
+          && request.resource.data.commissionInvoiceId == null
+          && changed.hasOnly([
+            'status',
+            'adminNote',
+            'confirmedAt',
+            'resolvedAt',
+            'updatedAt'
+          ])
+        )
+        || (
+          oldStatus in [
+            'investigating',
+            'appealed'
+          ]
+          && newStatus == 'noPenalty'
+          && request.resource.data.adminNote is string
+          && request.resource.data.adminNote.size() >= 5
+          && request.resource.data.confirmedAt == null
+          && request.resource.data.resolvedAt is timestamp
+          && request.resource.data.commissionApplied == false
+          && request.resource.data.commissionInvoiceId == null
+          && changed.hasOnly([
+            'status',
+            'adminNote',
+            'confirmedAt',
+            'resolvedAt',
+            'commissionApplied',
+            'commissionInvoiceId',
+            'updatedAt'
+          ])
+        )
+        || (
+          oldStatus == 'confirmed'
+          && newStatus == 'paid'
+          && request.resource.data.commissionApplied == resource.data.commissionApplied
+          && request.resource.data.commissionInvoiceId == resource.data.commissionInvoiceId
+          && request.resource.data.resolvedAt is timestamp
+          && changed.hasOnly([
+            'status',
+            'resolvedAt',
+            'updatedAt'
+          ])
+        )
+      );
+  }
+
+  allow read: if activeUser()
+    && (
+      isAdmin()
+      || resource.data.providerId == request.auth.uid
+    );
+
+  allow create: if isAdmin()
+    && validViolationCreateData();
+
+  allow update: if adminUpdatesViolation()
+    || providerSubmitsExplanation()
+    || providerSubmitsAppeal();
+
+  allow delete: if isAdmin()
+    && (
+      resource.data.status == 'draft'
+      || resource.data.status == 'cancelled'
+    );
 }
     /*
      * APPLICATION SETTINGS

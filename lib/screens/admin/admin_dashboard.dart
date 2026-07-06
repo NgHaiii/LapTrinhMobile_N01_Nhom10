@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 
 import '../../model/booking.dart';
 import '../../model/provider_application.dart';
+import '../../model/violation_record.dart';
 import '../../services/admin_service.dart';
 import '../../services/auth.dart';
 import '../../services/review_service.dart';
+import '../../services/violation_service.dart';
 import 'commission_management_page.dart';
 import 'provider_payment_profiles_page.dart';
 import 'review_management_page.dart';
+import 'violation_management_page.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -19,14 +22,16 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
-  final _adminService = AdminService();
-  final _reviewService = ReviewService();
+  final AdminService _adminService = AdminService();
+  final ReviewService _reviewService = ReviewService();
+  final ViolationService _violationService =
+      ViolationService();
 
   late final List<Widget> _pages;
 
   int _index = 0;
 
-  static const _titles = [
+  static const List<String> _titles = [
     'Tổng quan hệ thống',
     'Duyệt nhà cung cấp',
     'Quản lý người dùng',
@@ -39,7 +44,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
     super.initState();
 
     _pages = [
-      _OverviewPage(service: _adminService),
+      _OverviewPage(
+        service: _adminService,
+        violationService: _violationService,
+        onOpenViolations: _openViolations,
+        onOpenCommissions: _openCommissions,
+      ),
       _ApplicationsPage(service: _adminService),
       _UsersPage(service: _adminService),
       _BookingsPage(service: _adminService),
@@ -55,7 +65,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   void _openPaymentProfiles() {
-    Navigator.of(context).push(
+    Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) =>
             const ProviderPaymentProfilesPage(),
@@ -64,7 +74,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   void _openCommissions() {
-    Navigator.of(context).push(
+    Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) =>
             const CommissionManagementPage(),
@@ -72,29 +82,43 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
+  void _openViolations() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ViolationManagementPage(
+          service: _violationService,
+        ),
+      ),
+    );
+  }
+
   Future<void> _logout() async {
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.logout_rounded),
-        title: const Text('Đăng xuất?'),
-        content: const Text(
-          'Bạn có chắc muốn kết thúc phiên quản trị?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, false),
-            child: const Text('Hủy'),
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: const Icon(Icons.logout_rounded),
+          title: const Text('Đăng xuất?'),
+          content: const Text(
+            'Bạn có chắc muốn kết thúc phiên quản trị?',
           ),
-          FilledButton.icon(
-            onPressed: () =>
-                Navigator.pop(dialogContext, true),
-            icon: const Icon(Icons.logout_rounded),
-            label: const Text('Đăng xuất'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('Hủy'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              icon: const Icon(Icons.logout_rounded),
+              label: const Text('Đăng xuất'),
+            ),
+          ],
+        );
+      },
     );
 
     if (accepted == true) {
@@ -110,70 +134,73 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(_titles[_index]),
+            title: Text(
+              _titles[_index],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             actions: [
               IconButton(
-                tooltip: 'Cảnh báo đánh giá',
-                onPressed: () => _selectPage(4),
-                icon: const Icon(
-                  Icons.crisis_alert_outlined,
-                ),
+                tooltip: 'Biên bản vi phạm',
+                onPressed: _openViolations,
+                icon: const Icon(Icons.gavel_outlined),
               ),
               PopupMenuButton<String>(
                 tooltip: 'Công cụ quản trị',
                 onSelected: (value) {
-                  if (value == 'banks') {
-                    _openPaymentProfiles();
-                  } else if (value == 'commission') {
-                    _openCommissions();
-                  } else if (value == 'reviews') {
-                    _selectPage(4);
-                  } else if (value == 'logout') {
-                    _logout();
+                  switch (value) {
+                    case 'reviews':
+                      _selectPage(4);
+                    case 'violations':
+                      _openViolations();
+                    case 'banks':
+                      _openPaymentProfiles();
+                    case 'commission':
+                      _openCommissions();
+                    case 'logout':
+                      _logout();
                   }
                 },
                 itemBuilder: (_) => const [
                   PopupMenuItem(
                     value: 'reviews',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        Icons.rate_review_outlined,
-                      ),
-                      title: Text('Quản lý đánh giá'),
+                    child: _PopupMenuItem(
+                      icon: Icons.rate_review_outlined,
+                      label: 'Quản lý đánh giá',
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'violations',
+                    child: _PopupMenuItem(
+                      icon: Icons.gavel_outlined,
+                      label: 'Biên bản vi phạm',
                     ),
                   ),
                   PopupMenuItem(
                     value: 'banks',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        Icons.account_balance_outlined,
-                      ),
-                      title: Text('Xác minh ngân hàng'),
+                    child: _PopupMenuItem(
+                      icon: Icons.account_balance_outlined,
+                      label: 'Xác minh ngân hàng',
                     ),
                   ),
                   PopupMenuItem(
                     value: 'commission',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading:
-                          Icon(Icons.percent_rounded),
-                      title: Text('Quản lý hoa hồng'),
+                    child: _PopupMenuItem(
+                      icon: Icons.percent_rounded,
+                      label: 'Quản lý hoa hồng',
                     ),
                   ),
+                  PopupMenuDivider(),
                   PopupMenuItem(
                     value: 'logout',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading:
-                          Icon(Icons.logout_rounded),
-                      title: Text('Đăng xuất'),
+                    child: _PopupMenuItem(
+                      icon: Icons.logout_rounded,
+                      label: 'Đăng xuất',
                     ),
                   ),
                 ],
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
             ],
           ),
           body: Row(
@@ -199,17 +226,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ],
           ),
           bottomNavigationBar: desktop
-    ? null
-    : NavigationBar(
-        selectedIndex: _index,
-        labelBehavior:
-            NavigationDestinationLabelBehavior
-                .onlyShowSelected,
-        onDestinationSelected: _selectPage,
-        destinations:
-            const _AdminNavigation()
-                .barDestinations,
-      ),
+              ? null
+              : NavigationBar(
+                  selectedIndex: _index,
+                  labelBehavior:
+                      NavigationDestinationLabelBehavior
+                          .onlyShowSelected,
+                  onDestinationSelected: _selectPage,
+                  destinations:
+                      const _AdminNavigation()
+                          .barDestinations,
+                ),
         );
       },
     );
@@ -220,155 +247,399 @@ class _AdminNavigation {
   const _AdminNavigation();
 
   List<NavigationRailDestination>
-  get railDestinations => const [
-        NavigationRailDestination(
-          icon: Icon(Icons.dashboard_outlined),
-          selectedIcon:
-              Icon(Icons.dashboard_rounded),
-          label: Text('Tổng quan'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.fact_check_outlined),
-          selectedIcon:
-              Icon(Icons.fact_check_rounded),
-          label: Text('Xét duyệt'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.people_outline),
-          selectedIcon:
-              Icon(Icons.people_rounded),
-          label: Text('Người dùng'),
-        ),
-        NavigationRailDestination(
-          icon:
-              Icon(Icons.receipt_long_outlined),
-          selectedIcon:
-              Icon(Icons.receipt_long_rounded),
-          label: Text('Đặt phòng'),
-        ),
-        NavigationRailDestination(
-          icon:
-              Icon(Icons.crisis_alert_outlined),
-          selectedIcon:
-              Icon(Icons.crisis_alert_rounded),
-          label: Text('Đánh giá'),
-        ),
-      ];
+      get railDestinations {
+    return const [
+      NavigationRailDestination(
+        icon: Icon(Icons.dashboard_outlined),
+        selectedIcon:
+            Icon(Icons.dashboard_rounded),
+        label: Text('Tổng quan'),
+      ),
+      NavigationRailDestination(
+        icon: Icon(Icons.fact_check_outlined),
+        selectedIcon:
+            Icon(Icons.fact_check_rounded),
+        label: Text('Xét duyệt'),
+      ),
+      NavigationRailDestination(
+        icon: Icon(Icons.people_outline),
+        selectedIcon: Icon(Icons.people_rounded),
+        label: Text('Người dùng'),
+      ),
+      NavigationRailDestination(
+        icon: Icon(Icons.receipt_long_outlined),
+        selectedIcon:
+            Icon(Icons.receipt_long_rounded),
+        label: Text('Đặt phòng'),
+      ),
+      NavigationRailDestination(
+        icon: Icon(Icons.crisis_alert_outlined),
+        selectedIcon:
+            Icon(Icons.crisis_alert_rounded),
+        label: Text('Đánh giá'),
+      ),
+    ];
+  }
 
   List<NavigationDestination>
-  get barDestinations => const [
-        NavigationDestination(
-          icon: Icon(Icons.dashboard_outlined),
-          selectedIcon:
-              Icon(Icons.dashboard_rounded),
-          label: 'Tổng quan',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.fact_check_outlined),
-          selectedIcon:
-              Icon(Icons.fact_check_rounded),
-          label: 'Xét duyệt',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.people_outline),
-          selectedIcon:
-              Icon(Icons.people_rounded),
-          label: 'Người dùng',
-        ),
-        NavigationDestination(
-          icon:
-              Icon(Icons.receipt_long_outlined),
-          selectedIcon:
-              Icon(Icons.receipt_long_rounded),
-          label: 'Đặt phòng',
-        ),
-        NavigationDestination(
-          icon:
-              Icon(Icons.crisis_alert_outlined),
-          selectedIcon:
-              Icon(Icons.crisis_alert_rounded),
-          label: 'Đánh giá',
-        ),
-      ];
+      get barDestinations {
+    return const [
+      NavigationDestination(
+        icon: Icon(Icons.dashboard_outlined),
+        selectedIcon:
+            Icon(Icons.dashboard_rounded),
+        label: 'Tổng quan',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.fact_check_outlined),
+        selectedIcon:
+            Icon(Icons.fact_check_rounded),
+        label: 'Xét duyệt',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.people_outline),
+        selectedIcon: Icon(Icons.people_rounded),
+        label: 'Người dùng',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.receipt_long_outlined),
+        selectedIcon:
+            Icon(Icons.receipt_long_rounded),
+        label: 'Đặt phòng',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.crisis_alert_outlined),
+        selectedIcon:
+            Icon(Icons.crisis_alert_rounded),
+        label: 'Đánh giá',
+      ),
+    ];
+  }
 }
 
-class _OverviewPage extends StatelessWidget {
-  const _OverviewPage({required this.service});
+class _OverviewPage extends StatefulWidget {
+  const _OverviewPage({
+    required this.service,
+    required this.violationService,
+    required this.onOpenViolations,
+    required this.onOpenCommissions,
+  });
 
   final AdminService service;
+  final ViolationService violationService;
+  final VoidCallback onOpenViolations;
+  final VoidCallback onOpenCommissions;
+
+  @override
+  State<_OverviewPage> createState() =>
+      _OverviewPageState();
+}
+
+class _OverviewPageState extends State<_OverviewPage> {
+  late Future<AdminStats> _statsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _statsFuture = widget.service.loadStats();
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _statsFuture = widget.service.loadStats();
+    });
+
+    await _statsFuture;
+  }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<AdminStats>(
-      future: service.loadStats(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+      future: _statsFuture,
+      builder: (context, statsSnapshot) {
+        if (statsSnapshot.connectionState ==
+                ConnectionState.waiting &&
+            !statsSnapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(),
           );
         }
 
-        final stats = snapshot.data!;
+        if (statsSnapshot.hasError) {
+          return _AdminEmpty(
+            icon: Icons.cloud_off_outlined,
+            message:
+                _cleanError(statsSnapshot.error),
+          );
+        }
 
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final columns = constraints.maxWidth >= 1000
-    ? 3
-    : 2;
+        final stats = statsSnapshot.data!;
 
-            return GridView.count(
-              padding: const EdgeInsets.all(20),
-              crossAxisCount: columns,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio:
-    constraints.maxWidth < 500 ? 1.35 : 1.7,
-              children: [
-                _StatCard(
-                  label: 'Người dùng',
-                  value: stats.users,
-                  icon: Icons.people_rounded,
-                  color: Colors.blue,
-                ),
-                _StatCard(
-                  label: 'Nhà cung cấp',
-                  value: stats.providers,
-                  icon: Icons.storefront_rounded,
-                  color: Colors.green,
-                ),
-                _StatCard(
-                  label: 'Hồ sơ chờ duyệt',
-                  value: stats.pendingApplications,
-                  icon: Icons.pending_actions_rounded,
-                  color: Colors.orange,
-                ),
-                _StatCard(
-                  label: 'Đơn đặt phòng',
-                  value: stats.bookings,
-                  icon:
-                      Icons.event_available_rounded,
-                  color: Colors.pink,
-                ),
-                _StatCard(
-                  label: 'Ngân hàng chờ duyệt',
-                  value:
-                      stats.pendingPaymentProfiles,
-                  icon:
-                      Icons.account_balance_rounded,
-                  color: Colors.indigo,
-                ),
-                _StatCard(
-                  label: 'Hoa hồng chưa trả',
-                  value:
-                      stats.unpaidCommissionInvoices,
-                  icon: Icons.percent_rounded,
-                  color: Colors.red,
-                ),
-              ],
+        return StreamBuilder<List<ViolationRecord>>(
+          stream:
+              widget.violationService.watchAllViolations(),
+          builder: (context, violationSnapshot) {
+            final violations =
+                violationSnapshot.data ?? [];
+
+            final waitingDecision =
+                violations.where((item) {
+              return item.status ==
+                      ViolationStatus.investigating ||
+                  item.status ==
+                      ViolationStatus.appealed;
+            }).length;
+
+            final penalized =
+                violations.where((item) {
+              return item.status ==
+                      ViolationStatus.confirmed ||
+                  item.status ==
+                      ViolationStatus.paid;
+            }).length;
+
+            final noPenalty =
+                violations.where((item) {
+              return item.status ==
+                  ViolationStatus.noPenalty;
+            }).length;
+
+            final items = <_StatData>[
+              _StatData(
+                label: 'Người dùng',
+                value: stats.users,
+                icon: Icons.people_rounded,
+                color: const Color(0xFF2563EB),
+              ),
+              _StatData(
+                label: 'Nhà cung cấp',
+                value: stats.providers,
+                icon: Icons.storefront_rounded,
+                color: const Color(0xFF15803D),
+              ),
+              _StatData(
+                label: 'Hồ sơ chờ duyệt',
+                value: stats.pendingApplications,
+                icon:
+                    Icons.pending_actions_rounded,
+                color: const Color(0xFFD97706),
+              ),
+              _StatData(
+                label: 'Đơn đặt phòng',
+                value: stats.bookings,
+                icon:
+                    Icons.event_available_rounded,
+                color: const Color(0xFF7C3AED),
+              ),
+              _StatData(
+                label: 'Chờ quyết định',
+                value: waitingDecision,
+                icon:
+                    Icons.manage_search_outlined,
+                color: const Color(0xFFD35400),
+              ),
+              _StatData(
+                label: 'Biên bản bị phạt',
+                value: penalized,
+                icon: Icons.gavel_rounded,
+                color: const Color(0xFFB3261E),
+              ),
+              _StatData(
+                label: 'Không áp dụng phạt',
+                value: noPenalty,
+                icon: Icons.verified_rounded,
+                color: const Color(0xFF0F766E),
+              ),
+              _StatData(
+                label: 'Ngân hàng chờ duyệt',
+                value:
+                    stats.pendingPaymentProfiles,
+                icon:
+                    Icons.account_balance_rounded,
+                color: const Color(0xFF0369A1),
+              ),
+              _StatData(
+                label: 'Hoa hồng chưa trả',
+                value:
+                    stats.unpaidCommissionInvoices,
+                icon: Icons.percent_rounded,
+                color: const Color(0xFFB3261E),
+              ),
+            ];
+
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns =
+                      constraints.maxWidth >= 1100
+                          ? 4
+                          : constraints.maxWidth >= 650
+                              ? 3
+                              : 2;
+
+                  return CustomScrollView(
+                    physics:
+                        const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverPadding(
+                        padding:
+                            const EdgeInsets.fromLTRB(
+                          16,
+                          16,
+                          16,
+                          10,
+                        ),
+                        sliver: SliverToBoxAdapter(
+                          child: _OverviewHeader(
+                            onOpenViolations:
+                                widget
+                                    .onOpenViolations,
+                            onOpenCommissions:
+                                widget
+                                    .onOpenCommissions,
+                            waitingDecision:
+                                waitingDecision,
+                          ),
+                        ),
+                      ),
+                      if (violationSnapshot.hasError)
+                        SliverPadding(
+                          padding:
+                              const EdgeInsets.symmetric(
+                            horizontal: 16,
+                          ),
+                          sliver: SliverToBoxAdapter(
+                            child: _InlineWarning(
+                              message: _cleanError(
+                                violationSnapshot.error,
+                              ),
+                            ),
+                          ),
+                        ),
+                      SliverPadding(
+                        padding:
+                            const EdgeInsets.fromLTRB(
+                          16,
+                          6,
+                          16,
+                          28,
+                        ),
+                        sliver: SliverGrid(
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: columns,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                            mainAxisExtent: 118,
+                          ),
+                          delegate:
+                              SliverChildBuilderDelegate(
+                            (context, index) {
+                              return _StatCard(
+                                data: items[index],
+                              );
+                            },
+                            childCount: items.length,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             );
           },
         );
       },
+    );
+  }
+}
+
+class _OverviewHeader extends StatelessWidget {
+  const _OverviewHeader({
+    required this.onOpenViolations,
+    required this.onOpenCommissions,
+    required this.waitingDecision,
+  });
+
+  final VoidCallback onOpenViolations;
+  final VoidCallback onOpenCommissions;
+  final int waitingDecision;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Trung tâm điều hành',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(
+                        color:
+                            colors.onPrimaryContainer,
+                        fontWeight:
+                            FontWeight.w900,
+                      ),
+                ),
+              ),
+              if (waitingDecision > 0)
+                Badge(
+                  label: Text('$waitingDecision'),
+                  backgroundColor: colors.error,
+                  child: Icon(
+                    Icons.notifications_active_outlined,
+                    color:
+                        colors.onPrimaryContainer,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            waitingDecision > 0
+                ? 'Có $waitingDecision biên bản đang chờ quyết định.'
+                : 'Theo dõi hoạt động, cảnh báo và nghĩa vụ tài chính.',
+            style: TextStyle(
+              color: colors.onPrimaryContainer,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: onOpenViolations,
+                icon:
+                    const Icon(Icons.gavel_outlined),
+                label:
+                    const Text('Biên bản vi phạm'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: onOpenCommissions,
+                icon:
+                    const Icon(Icons.percent_rounded),
+                label: const Text('Hoa hồng'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -407,40 +678,12 @@ class _ApplicationsPageState
   Future<void> _reject(
     ProviderApplication application,
   ) async {
-    final controller = TextEditingController();
-
     final reason = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Từ chối hồ sơ'),
-        content: TextField(
-          controller: controller,
-          minLines: 3,
-          maxLines: 5,
-          decoration: const InputDecoration(
-            labelText: 'Lý do từ chối',
-            alignLabelWithHint: true,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext),
-            child: const Text('Hủy'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(
-              dialogContext,
-              controller.text.trim(),
-            ),
-            child: const Text('Từ chối'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (_) =>
+          const _RejectApplicationDialog(),
     );
-
-    controller.dispose();
 
     if (!mounted ||
         reason == null ||
@@ -463,6 +706,8 @@ class _ApplicationsPageState
   }
 
   void _message(String message) {
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -494,27 +739,37 @@ class _ApplicationsPageState
             ],
             selected: {_status},
             onSelectionChanged: (value) {
-              setState(() => _status = value.first);
+              setState(() {
+                _status = value.first;
+              });
             },
           ),
         ),
         Expanded(
           child: StreamBuilder<
-            QuerySnapshot<Map<String, dynamic>>
-          >(
-            stream:
-                widget.service.watchApplications(
-              _status,
-            ),
+              QuerySnapshot<Map<String, dynamic>>>(
+            stream: widget.service
+                .watchApplications(_status),
             builder: (context, snapshot) {
-              if (!snapshot.hasData) {
+              if (snapshot.connectionState ==
+                      ConnectionState.waiting &&
+                  !snapshot.hasData) {
                 return const Center(
-                  child: CircularProgressIndicator(),
+                  child:
+                      CircularProgressIndicator(),
+                );
+              }
+
+              if (snapshot.hasError) {
+                return _AdminEmpty(
+                  icon: Icons.cloud_off_outlined,
+                  message:
+                      _cleanError(snapshot.error),
                 );
               }
 
               final documents =
-                  snapshot.data!.docs;
+                  snapshot.data?.docs ?? [];
 
               if (documents.isEmpty) {
                 return const _AdminEmpty(
@@ -525,15 +780,17 @@ class _ApplicationsPageState
               }
 
               return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(
-                  20,
+                padding:
+                    const EdgeInsets.fromLTRB(
+                  16,
                   0,
-                  20,
+                  16,
                   28,
                 ),
                 itemCount: documents.length,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(height: 10),
+                separatorBuilder: (_, __) {
+                  return const SizedBox(height: 10);
+                },
                 itemBuilder: (context, index) {
                   final application =
                       ProviderApplication.fromMap(
@@ -560,8 +817,10 @@ class _ApplicationsPageState
                         '${application.representativeName}\n'
                         '${application.phoneNumber}\n'
                         '${application.address}',
+                        maxLines: 4,
+                        overflow:
+                            TextOverflow.ellipsis,
                       ),
-                      isThreeLine: true,
                       trailing: _status == 'pending'
                           ? PopupMenuButton<String>(
                               onSelected: (value) {
@@ -580,9 +839,8 @@ class _ApplicationsPageState
                                   const [
                                 PopupMenuItem(
                                   value: 'approve',
-                                  child: Text(
-                                    'Phê duyệt',
-                                  ),
+                                  child:
+                                      Text('Phê duyệt'),
                                 ),
                                 PopupMenuItem(
                                   value: 'reject',
@@ -604,25 +862,120 @@ class _ApplicationsPageState
   }
 }
 
+class _RejectApplicationDialog
+    extends StatefulWidget {
+  const _RejectApplicationDialog();
+
+  @override
+  State<_RejectApplicationDialog> createState() =>
+      _RejectApplicationDialogState();
+}
+
+class _RejectApplicationDialogState
+    extends State<_RejectApplicationDialog> {
+  final GlobalKey<FormState> _formKey =
+      GlobalKey<FormState>();
+
+  final TextEditingController _controller =
+      TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ??
+        false)) {
+      return;
+    }
+
+    final value = _controller.text.trim();
+
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      scrollable: true,
+      title: const Text('Từ chối hồ sơ'),
+      content: SizedBox(
+        width: 460,
+        child: Form(
+          key: _formKey,
+          child: TextFormField(
+            controller: _controller,
+            autofocus: true,
+            minLines: 3,
+            maxLines: 6,
+            maxLength: 1000,
+            textCapitalization:
+                TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Lý do từ chối',
+              alignLabelWithHint: true,
+            ),
+            validator: (value) {
+              if ((value?.trim().length ?? 0) < 5) {
+                return 'Lý do phải có ít nhất 5 ký tự.';
+              }
+
+              return null;
+            },
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            FocusScope.of(context).unfocus();
+            Navigator.of(context).pop();
+          },
+          child: const Text('Hủy'),
+        ),
+        FilledButton.icon(
+          onPressed: _submit,
+          icon:
+              const Icon(Icons.block_outlined),
+          label: const Text('Từ chối'),
+        ),
+      ],
+    );
+  }
+}
+
 class _UsersPage extends StatelessWidget {
-  const _UsersPage({required this.service});
+  const _UsersPage({
+    required this.service,
+  });
 
   final AdminService service;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<
-      QuerySnapshot<Map<String, dynamic>>
-    >(
+        QuerySnapshot<Map<String, dynamic>>>(
       stream: service.watchUsers(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState ==
+                ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(),
           );
         }
 
-        final users = snapshot.data!.docs;
+        if (snapshot.hasError) {
+          return _AdminEmpty(
+            icon: Icons.cloud_off_outlined,
+            message: _cleanError(snapshot.error),
+          );
+        }
+
+        final users = snapshot.data?.docs ?? [];
 
         if (users.isEmpty) {
           return const _AdminEmpty(
@@ -632,43 +985,58 @@ class _UsersPage extends StatelessWidget {
         }
 
         return ListView.separated(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           itemCount: users.length,
-          separatorBuilder: (_, __) =>
-              const SizedBox(height: 8),
+          separatorBuilder: (_, __) {
+            return const SizedBox(height: 8);
+          },
           itemBuilder: (context, index) {
             final document = users[index];
             final user = document.data();
-            final active = user['isActive'] != false;
+
+            final active =
+                user['isActive'] != false;
+            final role =
+                user['role']?.toString() ??
+                    'customer';
 
             return Card(
               child: SwitchListTile(
                 value: active,
-                onChanged: (value) async {
-                  try {
-                    await service.setUserActive(
-                      document.id,
-                      value,
-                    );
-                  } catch (error) {
-                    if (!context.mounted) return;
+                onChanged: role == 'admin'
+                    ? null
+                    : (value) async {
+                        try {
+                          await service.setUserActive(
+                            document.id,
+                            value,
+                          );
+                        } catch (error) {
+                          if (!context.mounted) {
+                            return;
+                          }
 
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          _cleanError(error),
-                        ),
-                      ),
-                    );
-                  }
-                },
+                          ScaffoldMessenger.of(
+                            context,
+                          )
+                            ..hideCurrentSnackBar()
+                            ..showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  _cleanError(
+                                    error,
+                                  ),
+                                ),
+                              ),
+                            );
+                        }
+                      },
                 secondary: CircleAvatar(
                   child: Icon(
-                    user['role'] == 'admin'
+                    role == 'admin'
                         ? Icons
                             .admin_panel_settings_outlined
-                        : user['role'] == 'provider'
+                        : role == 'provider'
                             ? Icons
                                 .storefront_outlined
                             : Icons.person_outline,
@@ -683,7 +1051,7 @@ class _UsersPage extends StatelessWidget {
                 ),
                 subtitle: Text(
                   '${user['email'] ?? ''}\n'
-                  'Vai trò: ${user['role'] ?? 'customer'}',
+                  'Vai trò: $role',
                 ),
                 isThreeLine: true,
               ),
@@ -705,34 +1073,44 @@ class _BookingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<
-      QuerySnapshot<Map<String, dynamic>>
-    >(
+        QuerySnapshot<Map<String, dynamic>>>(
       stream: service.watchBookings(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState ==
+                ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(),
           );
         }
 
-        final bookings = snapshot.data!.docs.toList()
-          ..sort((first, second) {
-            final firstTime =
-                first.data()['createdAt']
-                    as Timestamp?;
+        if (snapshot.hasError) {
+          return _AdminEmpty(
+            icon: Icons.cloud_off_outlined,
+            message: _cleanError(snapshot.error),
+          );
+        }
 
-            final secondTime =
-                second.data()['createdAt']
-                    as Timestamp?;
+        final bookings =
+            snapshot.data?.docs.toList() ?? [];
 
-            return (secondTime
-                        ?.millisecondsSinceEpoch ??
-                    0)
-                .compareTo(
-              firstTime?.millisecondsSinceEpoch ??
-                  0,
-            );
-          });
+        bookings.sort((first, second) {
+          final firstTime =
+              first.data()['createdAt']
+                  as Timestamp?;
+
+          final secondTime =
+              second.data()['createdAt']
+                  as Timestamp?;
+
+          return (secondTime
+                      ?.millisecondsSinceEpoch ??
+                  0)
+              .compareTo(
+            firstTime?.millisecondsSinceEpoch ??
+                0,
+          );
+        });
 
         if (bookings.isEmpty) {
           return const _AdminEmpty(
@@ -742,14 +1120,16 @@ class _BookingsPage extends StatelessWidget {
         }
 
         return ListView.separated(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           itemCount: bookings.length,
-          separatorBuilder: (_, __) =>
-              const SizedBox(height: 8),
+          separatorBuilder: (_, __) {
+            return const SizedBox(height: 8);
+          },
           itemBuilder: (context, index) {
             final document = bookings[index];
 
-            final booking = BookingModel.fromMap(
+            final booking =
+                BookingModel.fromMap(
               document.data(),
               document.id,
             );
@@ -770,9 +1150,9 @@ class _BookingsPage extends StatelessWidget {
                   ),
                 ),
                 subtitle: Text(
-                  '${booking.customerName} · '
+                  '${booking.customerName} • '
                   '${booking.customerPhone}\n'
-                  'Phòng ${booking.roomNumber} · '
+                  'Phòng ${booking.roomNumber} • '
                   '${booking.statusLabel}\n'
                   '${_money(booking.totalAmount)}',
                 ),
@@ -786,8 +1166,29 @@ class _BookingsPage extends StatelessWidget {
   }
 }
 
-class _StatCard extends StatelessWidget {
-  const _StatCard({
+class _PopupMenuItem extends StatelessWidget {
+  const _PopupMenuItem({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon),
+        const SizedBox(width: 12),
+        Expanded(child: Text(label)),
+      ],
+    );
+  }
+}
+
+class _StatData {
+  const _StatData({
     required this.label,
     required this.value,
     required this.icon,
@@ -798,45 +1199,104 @@ class _StatCard extends StatelessWidget {
   final int value;
   final IconData icon;
   final Color color;
+}
+
+class _StatCard extends StatelessWidget {
+  const _StatCard({
+    required this.data,
+  });
+
+  final _StatData data;
 
   @override
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Row(
+        padding: const EdgeInsets.all(13),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
           children: [
-            CircleAvatar(
-              backgroundColor:
-                  color.withValues(alpha: 0.12),
-              foregroundColor: color,
-              child: Icon(icon),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                mainAxisAlignment:
-                    MainAxisAlignment.center,
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$value',
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineSmall
-                        ?.copyWith(
-                          color: color,
-                          fontWeight:
-                              FontWeight.w900,
-                        ),
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: data.color.withValues(
+                      alpha: 0.12,
+                    ),
+                    shape: BoxShape.circle,
                   ),
-                  Text(label),
-                ],
+                  child: Icon(
+                    data.icon,
+                    color: data.color,
+                    size: 20,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${data.value}',
+                  style: TextStyle(
+                    color: data.color,
+                    fontSize: 23,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            Text(
+              data.label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                height: 1.15,
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _InlineWarning extends StatelessWidget {
+  const _InlineWarning({
+    required this.message,
+  });
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.errorContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.warning_amber_outlined,
+            color: colors.onErrorContainer,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: colors.onErrorContainer,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -856,18 +1316,26 @@ class _AdminEmpty extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
 
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 54, color: colors.primary),
-          const SizedBox(height: 10),
-          Text(
-            message,
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 52,
+              color: colors.primary,
             ),
-          ),
-        ],
+            const SizedBox(height: 10),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

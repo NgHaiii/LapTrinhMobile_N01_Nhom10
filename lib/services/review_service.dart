@@ -10,15 +10,20 @@ class ReviewService {
   ReviewService({
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
-  }) : _firestore =
-           firestore ?? FirebaseFirestore.instance,
-       _auth = auth ?? FirebaseAuth.instance;
+  })  : _firestore =
+            firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance;
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
 
-  CollectionReference<Map<String, dynamic>>
-  get _reviews => _firestore.collection('reviews');
+  CollectionReference<Map<String, dynamic>> get _reviews {
+    return _firestore.collection('reviews');
+  }
+
+  CollectionReference<Map<String, dynamic>> get _users {
+    return _firestore.collection('users');
+  }
 
   User _requireUser() {
     final user = _auth.currentUser;
@@ -26,6 +31,20 @@ class ReviewService {
     if (user == null) {
       throw StateError(
         'Bạn cần đăng nhập để thực hiện thao tác này.',
+      );
+    }
+
+    return user;
+  }
+
+  Future<User> _requireAdmin() async {
+    final user = _requireUser();
+    final snapshot = await _users.doc(user.uid).get();
+
+    if (!snapshot.exists ||
+        _text(snapshot.data()?['role']) != 'admin') {
+      throw StateError(
+        'Chỉ quản trị viên được thực hiện thao tác này.',
       );
     }
 
@@ -63,7 +82,9 @@ class ReviewService {
   ) {
     final id = roomId.trim();
 
-    if (id.isEmpty) return Stream.value(const []);
+    if (id.isEmpty) {
+      return Stream.value(const <ReviewModel>[]);
+    }
 
     return _reviews
         .where('roomId', isEqualTo: id)
@@ -80,7 +101,9 @@ class ReviewService {
   ) {
     final id = hotelId.trim();
 
-    if (id.isEmpty) return Stream.value(const []);
+    if (id.isEmpty) {
+      return Stream.value(const <ReviewModel>[]);
+    }
 
     return _reviews
         .where('hotelId', isEqualTo: id)
@@ -116,9 +139,9 @@ class ReviewService {
         .map(_allReviews);
   }
 
-  Stream<List<ReviewModel>>
-  watchAllReviewsForAdmin() {
+  Stream<List<ReviewModel>> watchAllReviewsForAdmin() {
     _requireUser();
+
     return _reviews.snapshots().map(_allReviews);
   }
 
@@ -136,10 +159,7 @@ class ReviewService {
         .doc(booking.id);
 
     final reviewReference = _reviews.doc(booking.id);
-
-    final userReference = _firestore
-        .collection('users')
-        .doc(user.uid);
+    final userReference = _users.doc(user.uid);
 
     await _firestore.runTransaction((transaction) async {
       final bookingSnapshot = await transaction.get(
@@ -160,15 +180,16 @@ class ReviewService {
         );
       }
 
-      final data = bookingSnapshot.data()!;
+      final bookingData = bookingSnapshot.data()!;
 
-      if (data['customerId'] != user.uid) {
+      if (_text(bookingData['customerId']) != user.uid) {
         throw StateError(
           'Bạn không có quyền đánh giá đơn này.',
         );
       }
 
-      if (data['status'] != BookingStatus.completed) {
+      if (_text(bookingData['status']) !=
+          BookingStatus.completed) {
         throw StateError(
           'Chỉ đơn đã hoàn thành mới được đánh giá.',
         );
@@ -180,23 +201,29 @@ class ReviewService {
         );
       }
 
-      final providerId =
-          data['providerId']?.toString().trim() ?? '';
+      final providerId = _text(
+        bookingData['providerId'],
+      );
 
-      final hotelId =
-          data['hotelId']?.toString().trim() ?? '';
+      final hotelId = _text(
+        bookingData['hotelId'],
+      );
 
-      final hotelName =
-          data['hotelName']?.toString().trim() ?? '';
+      final hotelName = _text(
+        bookingData['hotelName'],
+      );
 
-      final roomId =
-          data['roomId']?.toString().trim() ?? '';
+      final roomId = _text(
+        bookingData['roomId'],
+      );
 
-      final roomNumber =
-          data['roomNumber']?.toString().trim() ?? '';
+      final roomNumber = _text(
+        bookingData['roomNumber'],
+      );
 
-      final roomType =
-          data['roomType']?.toString().trim() ?? '';
+      final roomType = _text(
+        bookingData['roomType'],
+      );
 
       if (providerId.isEmpty ||
           hotelId.isEmpty ||
@@ -209,27 +236,30 @@ class ReviewService {
         );
       }
 
-      final customerName =
-          userSnapshot.data()?['fullName']
-              ?.toString()
-              .trim() ??
-          '';
+      final customerName = _text(
+        userSnapshot.data()?['fullName'],
+        fallback: 'Khách hàng',
+      );
 
-      final severity =
-          ReviewSeverity.fromRating(validRating);
+      final severity = ReviewSeverity.fromContent(
+        validRating,
+        validComment,
+      );
 
       final moderationStatus =
-          ReviewModerationStatus.fromRating(
-        validRating,
+          ReviewModerationStatus.fromSeverity(
+        severity,
       );
+
+      final providerActionRequired =
+          severity == ReviewSeverity.critical ||
+              severity == ReviewSeverity.high;
 
       transaction.set(reviewReference, {
         'targetType': 'room',
         'bookingId': booking.id,
         'customerId': user.uid,
-        'customerName': customerName.isEmpty
-            ? 'Khách hàng'
-            : customerName,
+        'customerName': customerName,
         'providerId': providerId,
         'hotelId': hotelId,
         'hotelName': hotelName,
@@ -245,7 +275,8 @@ class ReviewService {
         'adminNote': '',
         'assignedAdminId': '',
         'providerActionRequired':
-            validRating <= 2,
+            providerActionRequired,
+        'violationRecordId': '',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'repliedAt': null,
@@ -263,34 +294,55 @@ class ReviewService {
     final user = _requireUser();
     final id = _requireId(reviewId);
     final validRating = _validateRating(rating);
+    final validComment = _validateComment(comment);
 
     await _firestore.runTransaction((transaction) async {
       final reference = _reviews.doc(id);
       final snapshot = await transaction.get(reference);
 
       if (!snapshot.exists) {
-        throw StateError('Không tìm thấy đánh giá.');
+        throw StateError(
+          'Không tìm thấy đánh giá.',
+        );
       }
 
-      if (snapshot.data()?['customerId'] != user.uid) {
+      final data = snapshot.data()!;
+
+      if (_text(data['customerId']) != user.uid) {
         throw StateError(
           'Bạn không có quyền sửa đánh giá này.',
         );
       }
 
+      if (_text(data['violationRecordId']).isNotEmpty) {
+        throw StateError(
+          'Không thể sửa đánh giá đang có biên bản xử lý.',
+        );
+      }
+
+      final severity = ReviewSeverity.fromContent(
+        validRating,
+        validComment,
+      );
+
+      final moderationStatus =
+          ReviewModerationStatus.fromSeverity(
+        severity,
+      );
+
+      final providerActionRequired =
+          severity == ReviewSeverity.critical ||
+              severity == ReviewSeverity.high;
+
       transaction.update(reference, {
         'rating': validRating,
-        'comment': _validateComment(comment),
-        'severity':
-            ReviewSeverity.fromRating(validRating),
-        'moderationStatus':
-            ReviewModerationStatus.fromRating(
-          validRating,
-        ),
+        'comment': validComment,
+        'severity': severity,
+        'moderationStatus': moderationStatus,
         'adminNote': '',
         'assignedAdminId': '',
         'providerActionRequired':
-            validRating <= 2,
+            providerActionRequired,
         'reviewedAt': null,
         'resolvedAt': null,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -303,6 +355,8 @@ class ReviewService {
     required String reply,
   }) async {
     final user = _requireUser();
+    final validReply = _validateReply(reply);
+
     final reference = _reviews.doc(
       _requireId(reviewId),
     );
@@ -311,17 +365,21 @@ class ReviewService {
       final snapshot = await transaction.get(reference);
 
       if (!snapshot.exists) {
-        throw StateError('Không tìm thấy đánh giá.');
+        throw StateError(
+          'Không tìm thấy đánh giá.',
+        );
       }
 
-      if (snapshot.data()?['providerId'] != user.uid) {
+      final data = snapshot.data()!;
+
+      if (_text(data['providerId']) != user.uid) {
         throw StateError(
           'Bạn không có quyền phản hồi đánh giá này.',
         );
       }
 
       transaction.update(reference, {
-        'providerReply': _validateReply(reply),
+        'providerReply': validReply,
         'repliedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -332,6 +390,7 @@ class ReviewService {
     String reviewId,
   ) async {
     final user = _requireUser();
+
     final reference = _reviews.doc(
       _requireId(reviewId),
     );
@@ -340,10 +399,14 @@ class ReviewService {
       final snapshot = await transaction.get(reference);
 
       if (!snapshot.exists) {
-        throw StateError('Không tìm thấy đánh giá.');
+        throw StateError(
+          'Không tìm thấy đánh giá.',
+        );
       }
 
-      if (snapshot.data()?['providerId'] != user.uid) {
+      final data = snapshot.data()!;
+
+      if (_text(data['providerId']) != user.uid) {
         throw StateError(
           'Bạn không có quyền xóa phản hồi này.',
         );
@@ -363,7 +426,7 @@ class ReviewService {
     required String adminNote,
     required bool providerActionRequired,
   }) async {
-    final admin = _requireUser();
+    final admin = await _requireAdmin();
     final id = _requireId(reviewId);
 
     if (!ReviewModerationStatus.values.contains(
@@ -388,17 +451,39 @@ class ReviewService {
             moderationStatus ==
                 ReviewModerationStatus.dismissed;
 
-    await _reviews.doc(id).update({
-      'moderationStatus': moderationStatus,
-      'adminNote': note,
-      'assignedAdminId': admin.uid,
-      'providerActionRequired':
-          providerActionRequired,
-      'reviewedAt': FieldValue.serverTimestamp(),
-      'resolvedAt': closed
-          ? FieldValue.serverTimestamp()
-          : null,
-      'updatedAt': FieldValue.serverTimestamp(),
+    await _firestore.runTransaction((transaction) async {
+      final reference = _reviews.doc(id);
+      final snapshot = await transaction.get(reference);
+
+      if (!snapshot.exists) {
+        throw StateError(
+          'Không tìm thấy đánh giá.',
+        );
+      }
+
+      final data = snapshot.data()!;
+
+      if (_text(data['violationRecordId']).isNotEmpty &&
+          moderationStatus ==
+              ReviewModerationStatus.dismissed) {
+        throw StateError(
+          'Đánh giá đã có biên bản. Hãy hủy biên bản '
+          'trước khi kết luận không vi phạm.',
+        );
+      }
+
+      transaction.update(reference, {
+        'moderationStatus': moderationStatus,
+        'adminNote': note,
+        'assignedAdminId': admin.uid,
+        'providerActionRequired':
+            providerActionRequired,
+        'reviewedAt': FieldValue.serverTimestamp(),
+        'resolvedAt': closed
+            ? FieldValue.serverTimestamp()
+            : null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     });
   }
 
@@ -406,11 +491,11 @@ class ReviewService {
     required String reviewId,
     required bool visible,
   }) async {
-    _requireUser();
+    await _requireAdmin();
 
-    await _reviews.doc(
-      _requireId(reviewId),
-    ).update({
+    final id = _requireId(reviewId);
+
+    await _reviews.doc(id).update({
       'status': visible
           ? ReviewStatus.published
           : ReviewStatus.hidden,
@@ -479,8 +564,7 @@ class ReviewService {
   String _validateComment(String value) {
     final result = value.trim();
 
-    if (result.length < 5 ||
-        result.length > 1500) {
+    if (result.length < 5 || result.length > 1500) {
       throw StateError(
         'Nội dung đánh giá phải từ 5 đến 1500 ký tự.',
       );
@@ -492,8 +576,7 @@ class ReviewService {
   String _validateReply(String value) {
     final result = value.trim();
 
-    if (result.length < 2 ||
-        result.length > 1000) {
+    if (result.length < 2 || result.length > 1000) {
       throw StateError(
         'Phản hồi phải từ 2 đến 1000 ký tự.',
       );
@@ -507,15 +590,21 @@ int _newestFirst(
   ReviewModel first,
   ReviewModel second,
 ) {
-  final firstDate =
-      first.updatedAt ??
+  final firstDate = first.updatedAt ??
       first.createdAt ??
       DateTime.fromMillisecondsSinceEpoch(0);
 
-  final secondDate =
-      second.updatedAt ??
+  final secondDate = second.updatedAt ??
       second.createdAt ??
       DateTime.fromMillisecondsSinceEpoch(0);
 
   return secondDate.compareTo(firstDate);
+}
+
+String _text(
+  Object? value, {
+  String fallback = '',
+}) {
+  final result = value?.toString().trim() ?? '';
+  return result.isEmpty ? fallback : result;
 }

@@ -21,8 +21,18 @@ abstract final class ViolationStatus {
     paid,
   ];
 
+  static String normalize(dynamic value) {
+    final status = value?.toString().trim() ?? '';
+
+    if (values.contains(status)) {
+      return status;
+    }
+
+    return draft;
+  }
+
   static String label(String value) {
-    return switch (value) {
+    return switch (normalize(value)) {
       draft => 'Bản nháp',
       waitingProvider => 'Chờ nhà cung cấp giải trình',
       investigating => 'Chờ quản trị viên quyết định',
@@ -57,8 +67,18 @@ abstract final class ViolationType {
     other,
   ];
 
+  static String normalize(dynamic value) {
+    final type = value?.toString().trim() ?? '';
+
+    if (values.contains(type)) {
+      return type;
+    }
+
+    return other;
+  }
+
   static String label(String value) {
-    return switch (value) {
+    return switch (normalize(value)) {
       serviceQuality => 'Chất lượng dịch vụ',
       incorrectInformation => 'Thông tin không chính xác',
       hygiene => 'Vệ sinh phòng',
@@ -151,14 +171,33 @@ class ViolationRecord {
     return providerExplanation.trim().isNotEmpty;
   }
 
-  bool get hasPenalty {
-    return status == ViolationStatus.confirmed ||
-        status == ViolationStatus.paid ||
-        commissionApplied;
+  bool get hasAppeal {
+    return appealNote.trim().isNotEmpty;
+  }
+
+  bool get isConfirmed {
+    return status == ViolationStatus.confirmed;
+  }
+
+  bool get isPaid {
+    return status == ViolationStatus.paid;
   }
 
   bool get isNoPenalty {
     return status == ViolationStatus.noPenalty;
+  }
+
+  bool get hasPenalty {
+    return status == ViolationStatus.confirmed ||
+        status == ViolationStatus.paid;
+  }
+
+  bool get canBeIncludedInCommissionInvoice {
+    return status == ViolationStatus.confirmed &&
+        !commissionApplied &&
+        (commissionInvoiceId == null ||
+            commissionInvoiceId!.trim().isEmpty) &&
+        confirmedAt != null;
   }
 
   double get effectivePenaltyAmount {
@@ -213,27 +252,27 @@ class ViolationRecord {
         map['severity'],
         fallback: 'critical',
       ),
-      violationType: _string(
+      violationType: ViolationType.normalize(
         map['violationType'],
-        fallback: ViolationType.other,
       ),
       title: _string(map['title']),
       description: _string(map['description']),
       evidenceUrls: _stringList(map['evidenceUrls']),
       bookingAmount: _double(map['bookingAmount']),
-      baseCommissionRate: _double(
-        map['baseCommissionRate'],
-        fallback: 0.10,
+      baseCommissionRate: _normalizeRate(
+        _double(
+          map['baseCommissionRate'],
+          fallback: 0.10,
+        ),
       ),
-      penaltyRate: _double(
-        map['penaltyRate'],
-        fallback: 0.05,
+      penaltyRate: _normalizeRate(
+        _double(
+          map['penaltyRate'],
+          fallback: 0.05,
+        ),
       ),
       penaltyAmount: _double(map['penaltyAmount']),
-      status: _string(
-        map['status'],
-        fallback: ViolationStatus.draft,
-      ),
+      status: ViolationStatus.normalize(map['status']),
       providerExplanation: _string(
         map['providerExplanation'],
       ),
@@ -254,29 +293,29 @@ class ViolationRecord {
 
   Map<String, dynamic> toMap() {
     return {
-      'reviewId': reviewId,
-      'bookingId': bookingId,
-      'hotelId': hotelId,
-      'roomId': roomId,
-      'providerId': providerId,
-      'customerId': customerId,
-      'hotelName': hotelName,
-      'roomNumber': roomNumber,
-      'customerName': customerName,
-      'severity': severity,
-      'violationType': violationType,
-      'title': title,
-      'description': description,
-      'evidenceUrls': evidenceUrls,
+      'reviewId': reviewId.trim(),
+      'bookingId': bookingId.trim(),
+      'hotelId': hotelId.trim(),
+      'roomId': roomId.trim(),
+      'providerId': providerId.trim(),
+      'customerId': customerId.trim(),
+      'hotelName': hotelName.trim(),
+      'roomNumber': roomNumber.trim(),
+      'customerName': customerName.trim(),
+      'severity': severity.trim(),
+      'violationType': ViolationType.normalize(violationType),
+      'title': title.trim(),
+      'description': description.trim(),
+      'evidenceUrls': _uniqueStringList(evidenceUrls),
       'bookingAmount': bookingAmount,
       'baseCommissionRate': baseCommissionRate,
       'penaltyRate': penaltyRate,
       'penaltyAmount': penaltyAmount,
-      'status': status,
-      'providerExplanation': providerExplanation,
-      'appealNote': appealNote,
-      'adminNote': adminNote,
-      'createdBy': createdBy,
+      'status': ViolationStatus.normalize(status),
+      'providerExplanation': providerExplanation.trim(),
+      'appealNote': appealNote.trim(),
+      'adminNote': adminNote.trim(),
+      'createdBy': createdBy.trim(),
       'commissionApplied': commissionApplied,
       'commissionInvoiceId': commissionInvoiceId,
       'createdAt': _timestamp(createdAt),
@@ -285,6 +324,78 @@ class ViolationRecord {
       'confirmedAt': _timestamp(confirmedAt),
       'resolvedAt': _timestamp(resolvedAt),
     };
+  }
+
+  ViolationRecord copyWith({
+    String? id,
+    String? reviewId,
+    String? bookingId,
+    String? hotelId,
+    String? roomId,
+    String? providerId,
+    String? customerId,
+    String? hotelName,
+    String? roomNumber,
+    String? customerName,
+    String? severity,
+    String? violationType,
+    String? title,
+    String? description,
+    List<String>? evidenceUrls,
+    double? bookingAmount,
+    double? baseCommissionRate,
+    double? penaltyRate,
+    double? penaltyAmount,
+    String? status,
+    String? providerExplanation,
+    String? appealNote,
+    String? adminNote,
+    String? createdBy,
+    bool? commissionApplied,
+    String? commissionInvoiceId,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    DateTime? issuedAt,
+    DateTime? confirmedAt,
+    DateTime? resolvedAt,
+  }) {
+    return ViolationRecord(
+      id: id ?? this.id,
+      reviewId: reviewId ?? this.reviewId,
+      bookingId: bookingId ?? this.bookingId,
+      hotelId: hotelId ?? this.hotelId,
+      roomId: roomId ?? this.roomId,
+      providerId: providerId ?? this.providerId,
+      customerId: customerId ?? this.customerId,
+      hotelName: hotelName ?? this.hotelName,
+      roomNumber: roomNumber ?? this.roomNumber,
+      customerName: customerName ?? this.customerName,
+      severity: severity ?? this.severity,
+      violationType: violationType ?? this.violationType,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      evidenceUrls: evidenceUrls ?? this.evidenceUrls,
+      bookingAmount: bookingAmount ?? this.bookingAmount,
+      baseCommissionRate:
+          baseCommissionRate ?? this.baseCommissionRate,
+      penaltyRate: penaltyRate ?? this.penaltyRate,
+      penaltyAmount: penaltyAmount ?? this.penaltyAmount,
+      status: status ?? this.status,
+      providerExplanation:
+          providerExplanation ?? this.providerExplanation,
+      appealNote: appealNote ?? this.appealNote,
+      adminNote: adminNote ?? this.adminNote,
+      createdBy: createdBy ?? this.createdBy,
+      commissionApplied:
+          commissionApplied ?? this.commissionApplied,
+      commissionInvoiceId:
+          commissionInvoiceId ?? this.commissionInvoiceId,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      issuedAt: issuedAt ?? this.issuedAt,
+      confirmedAt: confirmedAt ?? this.confirmedAt,
+      resolvedAt: resolvedAt ?? this.resolvedAt,
+    );
   }
 }
 
@@ -311,18 +422,44 @@ double _double(
       fallback;
 }
 
+double _normalizeRate(double value) {
+  if (value > 1) return value / 100;
+  if (value < 0) return 0;
+  return value;
+}
+
 List<String> _stringList(Object? value) {
   if (value is! Iterable) return const [];
 
-  return value
-      .map((item) => item.toString().trim())
-      .where((item) => item.isNotEmpty)
-      .toList(growable: false);
+  return _uniqueStringList(
+    value.map((item) => item.toString()),
+  );
+}
+
+List<String> _uniqueStringList(Iterable<String> values) {
+  final result = <String>[];
+  final seen = <String>{};
+
+  for (final value in values) {
+    final normalized = value.trim();
+
+    if (normalized.isEmpty || seen.contains(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    result.add(normalized);
+  }
+
+  return List.unmodifiable(result);
 }
 
 DateTime? _date(Object? value) {
   if (value is Timestamp) return value.toDate();
   if (value is DateTime) return value;
+  if (value is int) {
+    return DateTime.fromMillisecondsSinceEpoch(value);
+  }
   if (value is String) return DateTime.tryParse(value);
 
   return null;

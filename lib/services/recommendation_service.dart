@@ -25,19 +25,13 @@ class RecommendationService {
     late StreamController<List<HotelRecommendation>>
     controller;
 
-    StreamSubscription<
-      QuerySnapshot<Map<String, dynamic>>
-    >?
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
     hotelsSubscription;
 
-    StreamSubscription<
-      QuerySnapshot<Map<String, dynamic>>
-    >?
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
     roomsSubscription;
 
-    StreamSubscription<
-      QuerySnapshot<Map<String, dynamic>>
-    >?
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
     reviewsSubscription;
 
     List<HotelModel> hotels = const [];
@@ -56,11 +50,8 @@ class RecommendationService {
         return;
       }
 
-      final provinceFilter =
-          province.trim().toLowerCase();
-
-      final districtFilter =
-          district.trim().toLowerCase();
+      final provinceFilter = province.trim().toLowerCase();
+      final districtFilter = district.trim().toLowerCase();
 
       final globalAverage = _globalAverage(reviews);
       final recommendations = <HotelRecommendation>[];
@@ -95,23 +86,22 @@ class RecommendationService {
         );
 
         recommendations.add(
-  HotelRecommendation(
-    hotel: hotel.copyWith(
-      rating: rating.averageRating,
-      reviewCount: rating.reviewCount,
-      reviewedRoomCount: rating.reviewedRoomCount,
-      recommendationScore: rating.recommendationScore,
-    ),
-    rating: rating,
-  ),
-);
+          HotelRecommendation(
+            hotel: hotel.copyWith(
+              rating: rating.averageRating,
+              reviewCount: rating.reviewCount,
+              reviewedRoomCount: rating.reviewedRoomCount,
+              recommendationScore: rating.recommendationScore,
+            ),
+            rating: rating,
+          ),
+        );
       }
 
       recommendations.sort(_compareHotels);
 
-      final safeLimit = limit <= 0
-          ? recommendations.length
-          : limit;
+      final safeLimit =
+          limit <= 0 ? recommendations.length : limit;
 
       controller.add(
         recommendations.take(safeLimit).toList(),
@@ -119,56 +109,54 @@ class RecommendationService {
     }
 
     controller =
-        StreamController<
-          List<HotelRecommendation>
-        >(
-          onListen: () {
-            hotelsSubscription = _firestore
-                .collection('hotels')
-                .snapshots()
-                .listen(
-                  (snapshot) {
-                    hotels = _readHotels(snapshot);
-                    hotelsLoaded = true;
-                    emit();
-                  },
-                  onError: controller.addError,
-                );
+        StreamController<List<HotelRecommendation>>(
+      onListen: () {
+        hotelsSubscription = _firestore
+            .collection('hotels')
+            .snapshots()
+            .listen(
+              (snapshot) {
+                hotels = _readHotels(snapshot);
+                hotelsLoaded = true;
+                emit();
+              },
+              onError: controller.addError,
+            );
 
-            roomsSubscription = _firestore
-                .collection('rooms')
-                .snapshots()
-                .listen(
-                  (snapshot) {
-                    rooms = _readRooms(snapshot);
-                    roomsLoaded = true;
-                    emit();
-                  },
-                  onError: controller.addError,
-                );
+        roomsSubscription = _firestore
+            .collection('rooms')
+            .snapshots()
+            .listen(
+              (snapshot) {
+                rooms = _readRooms(snapshot);
+                roomsLoaded = true;
+                emit();
+              },
+              onError: controller.addError,
+            );
 
-            reviewsSubscription = _firestore
-                .collection('reviews')
-                .where(
-                  'status',
-                  isEqualTo: ReviewStatus.published,
-                )
-                .snapshots()
-                .listen(
-                  (snapshot) {
-                    reviews = _readReviews(snapshot);
-                    reviewsLoaded = true;
-                    emit();
-                  },
-                  onError: controller.addError,
-                );
-          },
-          onCancel: () async {
-            await hotelsSubscription?.cancel();
-            await roomsSubscription?.cancel();
-            await reviewsSubscription?.cancel();
-          },
-        );
+        reviewsSubscription = _firestore
+            .collection('reviews')
+            .where(
+              'status',
+              isEqualTo: ReviewStatus.published,
+            )
+            .snapshots()
+            .listen(
+              (snapshot) {
+                reviews = _readReviews(snapshot);
+                reviewsLoaded = true;
+                emit();
+              },
+              onError: controller.addError,
+            );
+      },
+      onCancel: () async {
+        await hotelsSubscription?.cancel();
+        await roomsSubscription?.cancel();
+        await reviewsSubscription?.cancel();
+      },
+    );
 
     return controller.stream;
   }
@@ -188,14 +176,10 @@ class RecommendationService {
     late StreamController<List<RoomRecommendation>>
     controller;
 
-    StreamSubscription<
-      QuerySnapshot<Map<String, dynamic>>
-    >?
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
     roomsSubscription;
 
-    StreamSubscription<
-      QuerySnapshot<Map<String, dynamic>>
-    >?
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
     reviewsSubscription;
 
     List<RoomModel> rooms = const [];
@@ -239,51 +223,49 @@ class RecommendationService {
       controller.add(result.take(safeLimit).toList());
     }
 
-    controller =
-        StreamController<
-          List<RoomRecommendation>
-        >(
-          onListen: () {
-            roomsSubscription = _firestore
-                .collection('rooms')
-                .where(
-                  'hotelId',
-                  isEqualTo: normalizedHotelId,
-                )
-                .snapshots()
-                .listen(
-                  (snapshot) {
-                    rooms = _readRooms(snapshot);
-                    roomsLoaded = true;
-                    emit();
-                  },
-                  onError: controller.addError,
-                );
+    controller = StreamController<List<RoomRecommendation>>(
+      onListen: () {
+        roomsSubscription = _firestore
+            .collection('rooms')
+            .where(
+              'hotelId',
+              isEqualTo: normalizedHotelId,
+            )
+            .snapshots()
+            .listen(
+              (snapshot) {
+                rooms = _readRooms(snapshot);
+                roomsLoaded = true;
+                emit();
+              },
+              onError: controller.addError,
+            );
 
-            reviewsSubscription = _firestore
-                .collection('reviews')
-                .where(
-                  'hotelId',
-                  isEqualTo: normalizedHotelId,
-                )
-                .snapshots()
-                .listen(
-                  (snapshot) {
-                    reviews = _readReviews(snapshot)
-                        .where((review) => review.isPublished)
-                        .toList();
-
-                    reviewsLoaded = true;
-                    emit();
-                  },
-                  onError: controller.addError,
-                );
-          },
-          onCancel: () async {
-            await roomsSubscription?.cancel();
-            await reviewsSubscription?.cancel();
-          },
-        );
+        reviewsSubscription = _firestore
+            .collection('reviews')
+            .where(
+              'hotelId',
+              isEqualTo: normalizedHotelId,
+            )
+            .where(
+              'status',
+              isEqualTo: ReviewStatus.published,
+            )
+            .snapshots()
+            .listen(
+              (snapshot) {
+                reviews = _readReviews(snapshot);
+                reviewsLoaded = true;
+                emit();
+              },
+              onError: controller.addError,
+            );
+      },
+      onCancel: () async {
+        await roomsSubscription?.cancel();
+        await reviewsSubscription?.cancel();
+      },
+    );
 
     return controller.stream;
   }
@@ -306,11 +288,13 @@ class RecommendationService {
     return _firestore
         .collection('reviews')
         .where('roomId', isEqualTo: normalizedRoomId)
+        .where(
+          'status',
+          isEqualTo: ReviewStatus.published,
+        )
         .snapshots()
         .map((snapshot) {
-          final reviews = _readReviews(snapshot)
-              .where((review) => review.isPublished)
-              .toList();
+          final reviews = _readReviews(snapshot);
 
           return RoomRating.calculate(
             roomId: normalizedRoomId,
@@ -440,8 +424,8 @@ int _compareRooms(
 ) {
   final reviewedComparison =
       (second.rating.hasReviews ? 1 : 0).compareTo(
-        first.rating.hasReviews ? 1 : 0,
-      );
+    first.rating.hasReviews ? 1 : 0,
+  );
 
   if (reviewedComparison != 0) {
     return reviewedComparison;

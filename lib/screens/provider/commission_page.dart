@@ -78,7 +78,19 @@ class _ProviderCommissionPageState
           final totalCommission = allInvoices.fold<double>(
             0,
             (total, invoice) =>
-                total + invoice.effectiveCommissionAmount,
+                total + invoice.effectiveBaseCommissionAmount,
+          );
+
+          final totalPenalty = allInvoices.fold<double>(
+            0,
+            (total, invoice) =>
+                total + invoice.effectivePenaltyAmount,
+          );
+
+          final totalPayable = allInvoices.fold<double>(
+            0,
+            (total, invoice) =>
+                total + invoice.totalPayableAmount,
           );
 
           return Column(
@@ -93,6 +105,8 @@ class _ProviderCommissionPageState
                 child: _Summary(
                   revenue: totalRevenue,
                   commission: totalCommission,
+                  penalty: totalPenalty,
+                  payable: totalPayable,
                 ),
               ),
               SizedBox(
@@ -166,29 +180,57 @@ class _Summary extends StatelessWidget {
   const _Summary({
     required this.revenue,
     required this.commission,
+    required this.penalty,
+    required this.payable,
   });
 
   final double revenue;
   final double commission;
+  final double penalty;
+  final double payable;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: _SummaryItem(
-            icon: Icons.payments_outlined,
-            label: 'Doanh thu',
-            value: _money(revenue),
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: _SummaryItem(
+                icon: Icons.payments_outlined,
+                label: 'Doanh thu đã tính',
+                value: _money(revenue),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _SummaryItem(
+                icon: Icons.percent_rounded,
+                label: 'Hoa hồng',
+                value: _money(commission),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _SummaryItem(
-            icon: Icons.percent_rounded,
-            label: 'Hoa hồng',
-            value: _money(commission),
-          ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _SummaryItem(
+                icon: Icons.gavel_outlined,
+                label: 'Phạt vi phạm',
+                value: _money(penalty),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _SummaryItem(
+                icon: Icons.receipt_long_outlined,
+                label: 'Tổng phải trả',
+                value: _money(payable),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -223,10 +265,17 @@ class _SummaryItem extends StatelessWidget {
           children: [
             Icon(icon, color: colors.primary),
             const SizedBox(height: 10),
-            Text(label, style: const TextStyle(fontSize: 12)),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
             const SizedBox(height: 2),
             Text(
               value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontWeight: FontWeight.w900,
               ),
@@ -249,7 +298,14 @@ class _InvoiceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = _statusColor(invoice.status);
+    final statusColor = _statusColor(
+      invoice.isPastDue &&
+              invoice.status == CommissionStatus.unpaid
+          ? CommissionStatus.overdue
+          : invoice.status,
+    );
+
+    final colors = Theme.of(context).colorScheme;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -259,18 +315,43 @@ class _InvoiceCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
               children: [
-                const CircleAvatar(
-                  child: Icon(Icons.receipt_long_outlined),
+                CircleAvatar(
+                  backgroundColor:
+                      colors.primaryContainer,
+                  foregroundColor:
+                      colors.onPrimaryContainer,
+                  child: const Icon(
+                    Icons.receipt_long_outlined,
+                  ),
                 ),
                 const SizedBox(width: 11),
                 Expanded(
-                  child: Text(
-                    invoice.periodLabel,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        invoice.fullPeriodLabel,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Mã: ${invoice.paymentReference}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 _StatusBadge(
@@ -281,26 +362,46 @@ class _InvoiceCard extends StatelessWidget {
             ),
             const Divider(height: 25),
             _InvoiceRow(
-              label: 'Booking đã thanh toán',
+              label: 'Booking mới đã tính',
               value: '${invoice.bookingIds.length}',
             ),
+            if (invoice.violationRecordIds.isNotEmpty)
+              _InvoiceRow(
+                label: 'Biên bản phạt đã tính',
+                value: '${invoice.violationRecordIds.length}',
+              ),
             _InvoiceRow(
-              label: 'Tổng doanh thu',
+              label: 'Tổng doanh thu mới',
               value: _money(invoice.grossRevenue),
             ),
             _InvoiceRow(
               label:
-                  'Tỷ lệ hoa hồng',
-              value:
-                  '${(invoice.commissionRate * 100).round()}%',
-            ),
-            _InvoiceRow(
-              label: 'Hoa hồng phải trả',
+                  'Hoa hồng ${(invoice.commissionRate * 100).round()}%',
               value: _money(
-                invoice.effectiveCommissionAmount,
+                invoice.effectiveBaseCommissionAmount,
+              ),
+            ),
+            if (invoice.hasPenalty)
+              _InvoiceRow(
+                label: 'Phạt vi phạm',
+                value: _money(
+                  invoice.effectivePenaltyAmount,
+                ),
+              ),
+            _InvoiceRow(
+              label: 'Tổng phải trả',
+              value: _money(
+                invoice.totalPayableAmount,
               ),
               highlight: true,
             ),
+            if (invoice.periodStart != null &&
+                invoice.periodEnd != null)
+              _InvoiceRow(
+                label: 'Kỳ dữ liệu',
+                value:
+                    '${_date(invoice.periodStart!)} - ${_date(invoice.periodEnd!)}',
+              ),
             if (invoice.dueDate != null)
               _InvoiceRow(
                 label: 'Hạn thanh toán',
@@ -311,7 +412,8 @@ class _InvoiceCard extends StatelessWidget {
               Text(
                 invoice.rejectionReason,
                 style: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
+                  color: colors.error,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
@@ -351,13 +453,17 @@ class _InvoiceRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(child: Text(label)),
-          Text(
-            value,
-            style: TextStyle(
-              color: highlight
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
-              fontWeight: FontWeight.w900,
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: highlight
+                    ? Theme.of(context).colorScheme.primary
+                    : null,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ],
@@ -413,7 +519,7 @@ class _CommissionPaymentScreenState
           title: const Text('Xác nhận đã thanh toán?'),
           content: Text(
             'Hãy chắc chắn bạn đã chuyển '
-            '${_money(widget.invoice.effectiveCommissionAmount)} '
+            '${_money(widget.invoice.totalPayableAmount)} '
             'với nội dung '
             '${widget.invoice.paymentReference}.',
           ),
@@ -467,6 +573,7 @@ class _CommissionPaymentScreenState
   @override
   Widget build(BuildContext context) {
     final invoice = widget.invoice;
+    final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -505,7 +612,7 @@ class _CommissionPaymentScreenState
             ),
             children: [
               Text(
-                invoice.periodLabel,
+                invoice.fullPeriodLabel,
                 style: Theme.of(context)
                     .textTheme
                     .titleLarge
@@ -516,6 +623,45 @@ class _CommissionPaymentScreenState
               const SizedBox(height: 5),
               Text(
                 'Mã hóa đơn: ${invoice.id}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 14),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: colors.outlineVariant,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      _InvoiceRow(
+                        label: 'Hoa hồng',
+                        value: _money(
+                          invoice.effectiveBaseCommissionAmount,
+                        ),
+                      ),
+                      if (invoice.hasPenalty)
+                        _InvoiceRow(
+                          label: 'Phạt vi phạm',
+                          value: _money(
+                            invoice.effectivePenaltyAmount,
+                          ),
+                        ),
+                      _InvoiceRow(
+                        label: 'Số tiền chuyển',
+                        value: _money(
+                          invoice.totalPayableAmount,
+                        ),
+                        highlight: true,
+                      ),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               Center(
@@ -551,13 +697,6 @@ class _CommissionPaymentScreenState
                 ),
               ),
               const SizedBox(height: 16),
-              _InvoiceRow(
-                label: 'Số tiền',
-                value: _money(
-                  invoice.effectiveCommissionAmount,
-                ),
-                highlight: true,
-              ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Nội dung chuyển khoản'),

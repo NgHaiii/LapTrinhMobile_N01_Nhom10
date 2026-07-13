@@ -49,6 +49,9 @@ class CommissionInvoice {
     required this.bookingIds,
     required this.status,
     required this.paymentReference,
+    this.sequenceNumber = 1,
+    this.periodStart,
+    this.periodEnd,
     this.penaltyAmount = 0,
     this.violationRecordIds = const [],
     this.rejectionReason = '',
@@ -67,6 +70,15 @@ class CommissionInvoice {
   final int month;
   final int year;
 
+  /// Đợt lập hóa đơn trong cùng tháng.
+  /// Ví dụ tháng 7 có thể có đợt 1, đợt 2, đợt 3.
+  final int sequenceNumber;
+
+  /// Khoảng dữ liệu thực tế được tính trong hóa đơn này.
+  /// Có thể nhỏ hơn cả tháng nếu tháng đó đã lập hóa đơn trước đó.
+  final DateTime? periodStart;
+  final DateTime? periodEnd;
+
   final double grossRevenue;
   final double commissionRate;
 
@@ -76,7 +88,11 @@ class CommissionInvoice {
   /// Tổng khoản phụ thu từ các biên bản vi phạm.
   final double penaltyAmount;
 
+  /// Danh sách booking đã được tính trong hóa đơn này.
+  /// Service sẽ dùng danh sách này để tránh tính trùng ở lần lập sau.
   final List<String> bookingIds;
+
+  /// Danh sách biên bản vi phạm đã được tính phạt trong hóa đơn này.
   final List<String> violationRecordIds;
 
   final String status;
@@ -94,6 +110,14 @@ class CommissionInvoice {
     return 'Tháng ${month.toString().padLeft(2, '0')}/$year';
   }
 
+  String get sequenceLabel {
+    return 'Đợt $sequenceNumber';
+  }
+
+  String get fullPeriodLabel {
+    return '$periodLabel - $sequenceLabel';
+  }
+
   String get statusLabel {
     return CommissionStatus.label(status);
   }
@@ -102,9 +126,12 @@ class CommissionInvoice {
     return status == CommissionStatus.paid;
   }
 
+  bool get hasRevenue {
+    return grossRevenue > 0 && bookingIds.isNotEmpty;
+  }
+
   bool get hasPenalty {
-    return effectivePenaltyAmount > 0 &&
-        violationRecordIds.isNotEmpty;
+    return effectivePenaltyAmount > 0 && violationRecordIds.isNotEmpty;
   }
 
   bool get canSubmitPayment {
@@ -114,9 +141,7 @@ class CommissionInvoice {
   }
 
   bool get isPastDue {
-    return !isPaid &&
-        dueDate != null &&
-        DateTime.now().isAfter(dueDate!);
+    return !isPaid && dueDate != null && DateTime.now().isAfter(dueDate!);
   }
 
   double get effectiveBaseCommissionAmount {
@@ -131,8 +156,7 @@ class CommissionInvoice {
   /// Giữ getter cũ để các màn hình hiện tại vẫn hoạt động.
   /// Giá trị trả về đã bao gồm phụ thu vi phạm.
   double get effectiveCommissionAmount {
-    return effectiveBaseCommissionAmount +
-        effectivePenaltyAmount;
+    return effectiveBaseCommissionAmount + effectivePenaltyAmount;
   }
 
   double get totalPayableAmount {
@@ -143,9 +167,7 @@ class CommissionInvoice {
     Map<String, dynamic> data,
     String id,
   ) {
-    final grossRevenue = _asDouble(
-      data['grossRevenue'],
-    );
+    final grossRevenue = _asDouble(data['grossRevenue']);
 
     final commissionRate = _normalizeRate(
       _asDouble(
@@ -153,6 +175,8 @@ class CommissionInvoice {
         fallback: 0.10,
       ),
     );
+
+    final sequenceNumber = _safeSequenceNumber(data['sequenceNumber']);
 
     return CommissionInvoice(
       id: id,
@@ -169,46 +193,27 @@ class CommissionInvoice {
         data['year'],
         fallback: DateTime.now().year,
       ),
+      sequenceNumber: sequenceNumber,
+      periodStart: _asDateTime(data['periodStart']),
+      periodEnd: _asDateTime(data['periodEnd']),
       grossRevenue: grossRevenue,
       commissionRate: commissionRate,
       commissionAmount: _asDouble(
         data['commissionAmount'],
         fallback: grossRevenue * commissionRate,
       ),
-      penaltyAmount: _asDouble(
-        data['penaltyAmount'],
-      ),
-      bookingIds: _readStringList(
-        data['bookingIds'],
-      ),
-      violationRecordIds: _readStringList(
-        data['violationRecordIds'],
-      ),
-      status: CommissionStatus.normalize(
-        data['status'],
-      ),
-      paymentReference: _asString(
-        data['paymentReference'],
-      ),
-      rejectionReason: _asString(
-        data['rejectionReason'],
-      ),
+      penaltyAmount: _asDouble(data['penaltyAmount']),
+      bookingIds: _readStringList(data['bookingIds']),
+      violationRecordIds: _readStringList(data['violationRecordIds']),
+      status: CommissionStatus.normalize(data['status']),
+      paymentReference: _asString(data['paymentReference']),
+      rejectionReason: _asString(data['rejectionReason']),
       dueDate: _asDateTime(data['dueDate']),
-      paymentSubmittedAt: _asDateTime(
-        data['paymentSubmittedAt'],
-      ),
-      confirmedAt: _asDateTime(
-        data['confirmedAt'],
-      ),
-      confirmedBy: _asString(
-        data['confirmedBy'],
-      ),
-      createdAt: _asDateTime(
-        data['createdAt'],
-      ),
-      updatedAt: _asDateTime(
-        data['updatedAt'],
-      ),
+      paymentSubmittedAt: _asDateTime(data['paymentSubmittedAt']),
+      confirmedAt: _asDateTime(data['confirmedAt']),
+      confirmedBy: _asString(data['confirmedBy']),
+      createdAt: _asDateTime(data['createdAt']),
+      updatedAt: _asDateTime(data['updatedAt']),
     );
   }
 
@@ -218,21 +223,21 @@ class CommissionInvoice {
       'providerName': providerName.trim(),
       'month': month,
       'year': year,
+      'sequenceNumber': sequenceNumber < 1 ? 1 : sequenceNumber,
+      'periodStart': _timestamp(periodStart),
+      'periodEnd': _timestamp(periodEnd),
       'grossRevenue': grossRevenue,
       'commissionRate': commissionRate,
-      'commissionAmount':
-          effectiveBaseCommissionAmount,
+      'commissionAmount': effectiveBaseCommissionAmount,
       'penaltyAmount': effectivePenaltyAmount,
       'totalPayableAmount': totalPayableAmount,
-      'bookingIds': bookingIds.toSet().toList(),
-      'violationRecordIds':
-          violationRecordIds.toSet().toList(),
+      'bookingIds': _uniqueStringList(bookingIds),
+      'violationRecordIds': _uniqueStringList(violationRecordIds),
       'status': CommissionStatus.normalize(status),
       'paymentReference': paymentReference.trim(),
       'rejectionReason': rejectionReason.trim(),
       'dueDate': _timestamp(dueDate),
-      'paymentSubmittedAt':
-          _timestamp(paymentSubmittedAt),
+      'paymentSubmittedAt': _timestamp(paymentSubmittedAt),
       'confirmedAt': _timestamp(confirmedAt),
       'confirmedBy': confirmedBy.trim(),
       'createdAt': _timestamp(createdAt),
@@ -246,6 +251,9 @@ class CommissionInvoice {
     String? providerName,
     int? month,
     int? year,
+    int? sequenceNumber,
+    DateTime? periodStart,
+    DateTime? periodEnd,
     double? grossRevenue,
     double? commissionRate,
     double? commissionAmount,
@@ -268,29 +276,22 @@ class CommissionInvoice {
       providerName: providerName ?? this.providerName,
       month: month ?? this.month,
       year: year ?? this.year,
-      grossRevenue:
-          grossRevenue ?? this.grossRevenue,
-      commissionRate:
-          commissionRate ?? this.commissionRate,
-      commissionAmount:
-          commissionAmount ?? this.commissionAmount,
-      penaltyAmount:
-          penaltyAmount ?? this.penaltyAmount,
+      sequenceNumber: sequenceNumber ?? this.sequenceNumber,
+      periodStart: periodStart ?? this.periodStart,
+      periodEnd: periodEnd ?? this.periodEnd,
+      grossRevenue: grossRevenue ?? this.grossRevenue,
+      commissionRate: commissionRate ?? this.commissionRate,
+      commissionAmount: commissionAmount ?? this.commissionAmount,
+      penaltyAmount: penaltyAmount ?? this.penaltyAmount,
       bookingIds: bookingIds ?? this.bookingIds,
-      violationRecordIds:
-          violationRecordIds ?? this.violationRecordIds,
+      violationRecordIds: violationRecordIds ?? this.violationRecordIds,
       status: status ?? this.status,
-      paymentReference:
-          paymentReference ?? this.paymentReference,
-      rejectionReason:
-          rejectionReason ?? this.rejectionReason,
+      paymentReference: paymentReference ?? this.paymentReference,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
       dueDate: dueDate ?? this.dueDate,
-      paymentSubmittedAt:
-          paymentSubmittedAt ??
-          this.paymentSubmittedAt,
+      paymentSubmittedAt: paymentSubmittedAt ?? this.paymentSubmittedAt,
       confirmedAt: confirmedAt ?? this.confirmedAt,
-      confirmedBy:
-          confirmedBy ?? this.confirmedBy,
+      confirmedBy: confirmedBy ?? this.confirmedBy,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -300,11 +301,27 @@ class CommissionInvoice {
 List<String> _readStringList(dynamic value) {
   if (value is! Iterable) return const [];
 
-  return value
-      .map((item) => item.toString().trim())
-      .where((item) => item.isNotEmpty)
-      .toSet()
-      .toList(growable: false);
+  return _uniqueStringList(
+    value.map((item) => item.toString()).toList(),
+  );
+}
+
+List<String> _uniqueStringList(Iterable<String> value) {
+  final result = <String>[];
+  final seen = <String>{};
+
+  for (final item in value) {
+    final normalized = item.trim();
+
+    if (normalized.isEmpty || seen.contains(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    result.add(normalized);
+  }
+
+  return List.unmodifiable(result);
 }
 
 String _asString(
@@ -321,10 +338,7 @@ double _asDouble(
 }) {
   if (value is num) return value.toDouble();
 
-  return double.tryParse(
-        value?.toString().trim() ?? '',
-      ) ??
-      fallback;
+  return double.tryParse(value?.toString().trim() ?? '') ?? fallback;
 }
 
 int _asInt(
@@ -333,10 +347,12 @@ int _asInt(
 }) {
   if (value is num) return value.toInt();
 
-  return int.tryParse(
-        value?.toString().trim() ?? '',
-      ) ??
-      fallback;
+  return int.tryParse(value?.toString().trim() ?? '') ?? fallback;
+}
+
+int _safeSequenceNumber(dynamic value) {
+  final result = _asInt(value, fallback: 1);
+  return result < 1 ? 1 : result;
 }
 
 double _normalizeRate(double value) {

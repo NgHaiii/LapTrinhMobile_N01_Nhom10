@@ -110,6 +110,9 @@ class BookingModel {
     this.receiverAccountName = '',
     this.commissionRate = 0.10,
     this.commissionAmount = 0,
+    this.commissionApplied = false,
+    this.commissionInvoiceId,
+    this.commissionSettledAt,
     this.createdAt,
     this.updatedAt,
   });
@@ -167,6 +170,11 @@ class BookingModel {
 
   final double commissionRate;
   final double commissionAmount;
+
+  final bool commissionApplied;
+  final String? commissionInvoiceId;
+  final DateTime? commissionSettledAt;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -206,6 +214,18 @@ class BookingModel {
         receiverAccountName.isNotEmpty;
   }
 
+  bool get isPaid {
+    return paymentStatus == PaymentStatus.paid &&
+        paymentConfirmedAt != null;
+  }
+
+  bool get canBeIncludedInCommissionInvoice {
+    return isPaid &&
+        !commissionApplied &&
+        (commissionInvoiceId == null ||
+            commissionInvoiceId!.trim().isEmpty);
+  }
+
   int get effectiveDurationMinutes {
     if (durationMinutes > 0) return durationMinutes;
 
@@ -227,9 +247,15 @@ class BookingModel {
     return effectiveFirstHourPrice;
   }
 
+  double get effectiveCommissionRate {
+    if (commissionRate > 1) return commissionRate / 100;
+    if (commissionRate < 0) return 0;
+    return commissionRate;
+  }
+
   double get effectiveCommissionAmount {
     if (commissionAmount > 0) return commissionAmount;
-    return totalAmount * commissionRate;
+    return totalAmount * effectiveCommissionRate;
   }
 
   String get durationLabel {
@@ -251,8 +277,7 @@ class BookingModel {
   String get statusLabel {
     return switch (status) {
       BookingStatus.awaitingPayment => 'Chờ thanh toán',
-      BookingStatus.paymentReview =>
-        'Đang kiểm tra thanh toán',
+      BookingStatus.paymentReview => 'Đang kiểm tra thanh toán',
       BookingStatus.confirmed => 'Đã xác nhận',
       BookingStatus.completed => 'Hoàn thành',
       BookingStatus.cancelled => 'Đã hủy',
@@ -269,22 +294,22 @@ class BookingModel {
     final checkIn =
         _asDateTime(data['checkIn']) ?? DateTime.now();
 
-    final checkOut =
-        _asDateTime(data['checkOut']) ??
+    final checkOut = _asDateTime(data['checkOut']) ??
         checkIn.add(const Duration(hours: 1));
 
     final difference = checkOut.difference(checkIn);
     final pricePerNight = _asDouble(data['pricePerNight']);
     final baseHourlyPrice = _asDouble(
       data['baseHourlyPrice'],
-      fallback:
-          pricePerNight > 0 ? pricePerNight / 24 : 0,
+      fallback: pricePerNight > 0 ? pricePerNight / 24 : 0,
     );
 
     final grossAmount = _asDouble(data['totalAmount']);
-    final commissionRate = _asDouble(
-      data['commissionRate'],
-      fallback: 0.10,
+    final commissionRate = _normalizeRate(
+      _asDouble(
+        data['commissionRate'],
+        fallback: 0.10,
+      ),
     );
 
     return BookingModel(
@@ -295,9 +320,7 @@ class BookingModel {
       customerPhone: _asString(
         data['customerPhone'] ?? data['phoneNumber'],
       ),
-      specialRequests: _asString(
-        data['specialRequests'],
-      ),
+      specialRequests: _asString(data['specialRequests']),
       providerId: _asString(data['providerId']),
       hotelId: _asString(data['hotelId']),
       hotelName: _asString(
@@ -332,9 +355,7 @@ class BookingModel {
       ratePlanName: _asString(data['ratePlanName']),
       ratePlanType: _asString(data['ratePlanType']),
       ratePlanPrice: _asDouble(data['ratePlanPrice']),
-      overtimeAmount: _asDouble(
-        data['overtimeAmount'],
-      ),
+      overtimeAmount: _asDouble(data['overtimeAmount']),
       weekendSurchargePercent: _asDouble(
         data['weekendSurchargePercent'],
       ),
@@ -356,24 +377,16 @@ class BookingModel {
       paymentStatus: PaymentStatus.normalize(
         data['paymentStatus'],
       ),
-      paymentReference: _asString(
-        data['paymentReference'],
-      ),
-      paymentDeadline: _asDateTime(
-        data['paymentDeadline'],
-      ),
+      paymentReference: _asString(data['paymentReference']),
+      paymentDeadline: _asDateTime(data['paymentDeadline']),
       paymentSubmittedAt: _asDateTime(
         data['paymentSubmittedAt'],
       ),
       paymentConfirmedAt: _asDateTime(
         data['paymentConfirmedAt'],
       ),
-      receiverBankBin: _asString(
-        data['receiverBankBin'],
-      ),
-      receiverBankName: _asString(
-        data['receiverBankName'],
-      ),
+      receiverBankBin: _asString(data['receiverBankBin']),
+      receiverBankName: _asString(data['receiverBankName']),
       receiverAccountNumber: _asString(
         data['receiverAccountNumber'],
       ),
@@ -384,6 +397,13 @@ class BookingModel {
       commissionAmount: _asDouble(
         data['commissionAmount'],
         fallback: grossAmount * commissionRate,
+      ),
+      commissionApplied: data['commissionApplied'] == true,
+      commissionInvoiceId: _nullableString(
+        data['commissionInvoiceId'],
+      ),
+      commissionSettledAt: _asDateTime(
+        data['commissionSettledAt'],
       ),
       createdAt: _asDateTime(data['createdAt']),
       updatedAt: _asDateTime(data['updatedAt']),
@@ -410,47 +430,151 @@ class BookingModel {
       'nights': nights,
       'baseHourlyPrice': effectiveFirstHourPrice,
       'firstHourPrice': effectiveFirstHourPrice,
-      'additionalHourPrice':
-          effectiveAdditionalHourPrice,
+      'additionalHourPrice': effectiveAdditionalHourPrice,
       'durationMinutes': effectiveDurationMinutes,
       'ratePlanId': ratePlanId.trim(),
       'ratePlanName': ratePlanName.trim(),
       'ratePlanType': ratePlanType.trim(),
       'ratePlanPrice': ratePlanPrice,
       'overtimeAmount': overtimeAmount,
-      'weekendSurchargePercent':
-          weekendSurchargePercent,
-      'holidaySurchargePercent':
-          holidaySurchargePercent,
-      'calendarSurchargeAmount':
-          calendarSurchargeAmount,
+      'weekendSurchargePercent': weekendSurchargePercent,
+      'holidaySurchargePercent': holidaySurchargePercent,
+      'calendarSurchargeAmount': calendarSurchargeAmount,
       'pricingBreakdown': pricingBreakdown,
       'totalAmount': totalAmount,
       'status': BookingStatus.normalize(status),
       'paymentMethod': paymentMethod.trim(),
-      'paymentStatus':
-          PaymentStatus.normalize(paymentStatus),
+      'paymentStatus': PaymentStatus.normalize(paymentStatus),
       'paymentReference': paymentReference.trim(),
-      'paymentDeadline': paymentDeadline == null
-          ? null
-          : Timestamp.fromDate(paymentDeadline!),
-      'paymentSubmittedAt':
-          paymentSubmittedAt == null
-          ? null
-          : Timestamp.fromDate(paymentSubmittedAt!),
-      'paymentConfirmedAt':
-          paymentConfirmedAt == null
-          ? null
-          : Timestamp.fromDate(paymentConfirmedAt!),
+      'paymentDeadline': _timestamp(paymentDeadline),
+      'paymentSubmittedAt': _timestamp(paymentSubmittedAt),
+      'paymentConfirmedAt': _timestamp(paymentConfirmedAt),
       'receiverBankBin': receiverBankBin.trim(),
       'receiverBankName': receiverBankName.trim(),
-      'receiverAccountNumber':
-          receiverAccountNumber.trim(),
-      'receiverAccountName':
-          receiverAccountName.trim(),
-      'commissionRate': commissionRate,
+      'receiverAccountNumber': receiverAccountNumber.trim(),
+      'receiverAccountName': receiverAccountName.trim(),
+      'commissionRate': effectiveCommissionRate,
       'commissionAmount': effectiveCommissionAmount,
+      'commissionApplied': commissionApplied,
+      'commissionInvoiceId': commissionInvoiceId,
+      'commissionSettledAt': _timestamp(commissionSettledAt),
     };
+  }
+
+  BookingModel copyWith({
+    String? id,
+    String? customerId,
+    String? customerName,
+    String? customerEmail,
+    String? customerPhone,
+    String? specialRequests,
+    String? providerId,
+    String? hotelId,
+    String? hotelName,
+    String? roomId,
+    String? roomNumber,
+    String? roomType,
+    DateTime? checkIn,
+    DateTime? checkOut,
+    int? guests,
+    double? pricePerNight,
+    int? nights,
+    double? baseHourlyPrice,
+    double? firstHourPrice,
+    double? additionalHourPrice,
+    int? durationMinutes,
+    String? ratePlanId,
+    String? ratePlanName,
+    String? ratePlanType,
+    double? ratePlanPrice,
+    double? overtimeAmount,
+    double? weekendSurchargePercent,
+    double? holidaySurchargePercent,
+    double? calendarSurchargeAmount,
+    Map<String, double>? pricingBreakdown,
+    double? totalAmount,
+    String? status,
+    String? paymentMethod,
+    String? paymentStatus,
+    String? paymentReference,
+    DateTime? paymentDeadline,
+    DateTime? paymentSubmittedAt,
+    DateTime? paymentConfirmedAt,
+    String? receiverBankBin,
+    String? receiverBankName,
+    String? receiverAccountNumber,
+    String? receiverAccountName,
+    double? commissionRate,
+    double? commissionAmount,
+    bool? commissionApplied,
+    String? commissionInvoiceId,
+    DateTime? commissionSettledAt,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return BookingModel(
+      id: id ?? this.id,
+      customerId: customerId ?? this.customerId,
+      customerName: customerName ?? this.customerName,
+      customerEmail: customerEmail ?? this.customerEmail,
+      customerPhone: customerPhone ?? this.customerPhone,
+      specialRequests: specialRequests ?? this.specialRequests,
+      providerId: providerId ?? this.providerId,
+      hotelId: hotelId ?? this.hotelId,
+      hotelName: hotelName ?? this.hotelName,
+      roomId: roomId ?? this.roomId,
+      roomNumber: roomNumber ?? this.roomNumber,
+      roomType: roomType ?? this.roomType,
+      checkIn: checkIn ?? this.checkIn,
+      checkOut: checkOut ?? this.checkOut,
+      guests: guests ?? this.guests,
+      pricePerNight: pricePerNight ?? this.pricePerNight,
+      nights: nights ?? this.nights,
+      baseHourlyPrice: baseHourlyPrice ?? this.baseHourlyPrice,
+      firstHourPrice: firstHourPrice ?? this.firstHourPrice,
+      additionalHourPrice:
+          additionalHourPrice ?? this.additionalHourPrice,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      ratePlanId: ratePlanId ?? this.ratePlanId,
+      ratePlanName: ratePlanName ?? this.ratePlanName,
+      ratePlanType: ratePlanType ?? this.ratePlanType,
+      ratePlanPrice: ratePlanPrice ?? this.ratePlanPrice,
+      overtimeAmount: overtimeAmount ?? this.overtimeAmount,
+      weekendSurchargePercent:
+          weekendSurchargePercent ?? this.weekendSurchargePercent,
+      holidaySurchargePercent:
+          holidaySurchargePercent ?? this.holidaySurchargePercent,
+      calendarSurchargeAmount:
+          calendarSurchargeAmount ?? this.calendarSurchargeAmount,
+      pricingBreakdown: pricingBreakdown ?? this.pricingBreakdown,
+      totalAmount: totalAmount ?? this.totalAmount,
+      status: status ?? this.status,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      paymentReference: paymentReference ?? this.paymentReference,
+      paymentDeadline: paymentDeadline ?? this.paymentDeadline,
+      paymentSubmittedAt:
+          paymentSubmittedAt ?? this.paymentSubmittedAt,
+      paymentConfirmedAt:
+          paymentConfirmedAt ?? this.paymentConfirmedAt,
+      receiverBankBin: receiverBankBin ?? this.receiverBankBin,
+      receiverBankName:
+          receiverBankName ?? this.receiverBankName,
+      receiverAccountNumber:
+          receiverAccountNumber ?? this.receiverAccountNumber,
+      receiverAccountName:
+          receiverAccountName ?? this.receiverAccountName,
+      commissionRate: commissionRate ?? this.commissionRate,
+      commissionAmount: commissionAmount ?? this.commissionAmount,
+      commissionApplied:
+          commissionApplied ?? this.commissionApplied,
+      commissionInvoiceId:
+          commissionInvoiceId ?? this.commissionInvoiceId,
+      commissionSettledAt:
+          commissionSettledAt ?? this.commissionSettledAt,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
   }
 }
 
@@ -475,6 +599,11 @@ String _asString(dynamic value, {String fallback = ''}) {
   return result.isEmpty ? fallback : result;
 }
 
+String? _nullableString(dynamic value) {
+  final result = value?.toString().trim() ?? '';
+  return result.isEmpty ? null : result;
+}
+
 double _asDouble(dynamic value, {double fallback = 0}) {
   if (value is num) return value.toDouble();
 
@@ -483,6 +612,12 @@ double _asDouble(dynamic value, {double fallback = 0}) {
   }
 
   return fallback;
+}
+
+double _normalizeRate(double value) {
+  if (value > 1) return value / 100;
+  if (value < 0) return 0;
+  return value;
 }
 
 int _asInt(dynamic value, {int fallback = 0}) {
@@ -506,4 +641,8 @@ DateTime? _asDateTime(dynamic value) {
   if (value is String) return DateTime.tryParse(value);
 
   return null;
+}
+
+Timestamp? _timestamp(DateTime? value) {
+  return value == null ? null : Timestamp.fromDate(value);
 }

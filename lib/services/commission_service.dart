@@ -64,34 +64,40 @@ class CommissionService {
       throw StateError('Tháng lập hóa đơn không hợp lệ.');
     }
 
-    final invoiceId =
-        '${normalizedProviderId}_${year}_${month.toString().padLeft(2, '0')}';
-
-    final invoiceReference = _invoices.doc(invoiceId);
     final periodStart = DateTime(year, month);
     final periodEnd = DateTime(year, month + 1);
 
-    final providerSnapshot = await _firestore
-        .collection('providers')
-        .doc(normalizedProviderId)
-        .get();
+    final existingInvoices = await _loadProviderInvoicesInMonth(
+      providerId: normalizedProviderId,
+      month: month,
+      year: year,
+    );
 
-    var providerName = providerSnapshot.data()?['businessName']
-            ?.toString()
-            .trim() ??
-        '';
+    final billedBookingIds = <String>{};
+    final billedViolationIds = <String>{};
+    var maxSequenceNumber = 0;
 
-    if (providerName.isEmpty) {
-      final userSnapshot = await _firestore
-          .collection('users')
-          .doc(normalizedProviderId)
-          .get();
+    for (final invoice in existingInvoices) {
+      billedBookingIds.addAll(invoice.bookingIds);
+      billedViolationIds.addAll(invoice.violationRecordIds);
 
-      providerName = userSnapshot.data()?['fullName']
-              ?.toString()
-              .trim() ??
-          'Nhà cung cấp';
+      if (invoice.sequenceNumber > maxSequenceNumber) {
+        maxSequenceNumber = invoice.sequenceNumber;
+      }
     }
+
+    final sequenceNumber = maxSequenceNumber + 1;
+    final invoiceId = _invoiceId(
+      providerId: normalizedProviderId,
+      month: month,
+      year: year,
+      sequenceNumber: sequenceNumber,
+    );
+    final invoiceReference = _invoices.doc(invoiceId);
+
+    final providerName = await _resolveProviderName(
+      normalizedProviderId,
+    );
 
     final bookingSnapshot = await _firestore
         .collection('bookings')
@@ -104,6 +110,10 @@ class CommissionService {
     final eligibleBookings = <BookingModel>[];
 
     for (final document in bookingSnapshot.docs) {
+      if (billedBookingIds.contains(document.id)) {
+        continue;
+      }
+
       final booking = BookingModel.fromMap(
         document.data(),
         document.id,
@@ -132,6 +142,10 @@ class CommissionService {
     final candidateViolationIds = <String>[];
 
     for (final document in violationSnapshot.docs) {
+      if (billedViolationIds.contains(document.id)) {
+        continue;
+      }
+
       final data = document.data();
       final status = data['status']?.toString();
       final confirmedAt = _date(data['confirmedAt']);
@@ -153,8 +167,7 @@ class CommissionService {
       (total, booking) => total + booking.totalAmount,
     );
 
-    final baseCommissionAmount =
-        eligibleBookings.fold<double>(
+    final baseCommissionAmount = eligibleBookings.fold<double>(
       0,
       (total, booking) {
         return total + booking.effectiveCommissionAmount;
@@ -169,14 +182,12 @@ class CommissionService {
 
       if (existingInvoice.exists) {
         throw StateError(
-          'Hóa đơn hoa hồng của tháng này đã tồn tại.',
+          'Hóa đơn hoa hồng đợt $sequenceNumber của tháng này đã tồn tại. Vui lòng tải lại dữ liệu.',
         );
       }
 
       final validViolations = <ViolationRecord>[];
 
-      // Firestore yêu cầu hoàn thành toàn bộ thao tác đọc
-      // trước khi bắt đầu ghi.
       for (final violationId in candidateViolationIds) {
         final snapshot = await transaction.get(
           _violations.doc(violationId),
@@ -190,7 +201,8 @@ class CommissionService {
         if (violation.providerId != normalizedProviderId ||
             violation.status != ViolationStatus.confirmed ||
             violation.commissionApplied ||
-            violation.confirmedAt == null) {
+            violation.confirmedAt == null ||
+            billedViolationIds.contains(violation.id)) {
           continue;
         }
 
@@ -205,8 +217,9 @@ class CommissionService {
       if (eligibleBookings.isEmpty &&
           validViolations.isEmpty) {
         throw StateError(
-          'Không có booking đã thanh toán hoặc khoản phạt '
-          'được xác nhận trong tháng này.',
+          existingInvoices.isEmpty
+              ? 'Không có booking đã thanh toán hoặc khoản phạt được xác nhận trong tháng này.'
+              : 'Không có doanh thu hoặc khoản phạt mới chưa được lập hóa đơn trong tháng này.',
         );
       }
 
@@ -221,6 +234,7 @@ class CommissionService {
         providerId: normalizedProviderId,
         month: month,
         year: year,
+        sequenceNumber: sequenceNumber,
       );
 
       final invoice = CommissionInvoice(
@@ -229,6 +243,11 @@ class CommissionService {
         providerName: providerName,
         month: month,
         year: year,
+        sequenceNumber: sequenceNumber,
+        periodStart: periodStart,
+        periodEnd: periodEnd.subtract(
+          const Duration(milliseconds: 1),
+        ),
         grossRevenue: grossRevenue,
         commissionRate: defaultCommissionRate,
         commissionAmount: baseCommissionAmount,
@@ -464,6 +483,61 @@ class CommissionService {
     });
   }
 
+  Future<List<CommissionInvoice>> _loadProviderInvoicesInMonth({
+    required String providerId,
+    required int month,
+    required int year,
+  }) async {
+    final snapshot = await _invoices
+        .where('providerId', isEqualTo: providerId)
+        .get();
+
+    final invoices = snapshot.docs
+        .map((document) {
+          return CommissionInvoice.fromMap(
+            document.data(),
+            document.id,
+          );
+        })
+        .where((invoice) {
+          return invoice.month == month &&
+              invoice.year == year;
+        })
+        .toList();
+
+    invoices.sort((first, second) {
+      return first.sequenceNumber
+          .compareTo(second.sequenceNumber);
+    });
+
+    return invoices;
+  }
+
+  Future<String> _resolveProviderName(
+    String providerId,
+  ) async {
+    final providerSnapshot =
+        await _firestore.collection('providers').doc(providerId).get();
+
+    var providerName = providerSnapshot.data()?['businessName']
+            ?.toString()
+            .trim() ??
+        '';
+
+    if (providerName.isNotEmpty) {
+      return providerName;
+    }
+
+    final userSnapshot =
+        await _firestore.collection('users').doc(providerId).get();
+
+    providerName =
+        userSnapshot.data()?['fullName']?.toString().trim() ??
+            '';
+
+    return providerName.isEmpty ? 'Nhà cung cấp' : providerName;
+  }
+
   List<CommissionInvoice> _parseInvoices(
     QuerySnapshot<Map<String, dynamic>> snapshot,
   ) {
@@ -477,24 +551,56 @@ class CommissionService {
     invoices.sort((first, second) {
       final firstPeriod = first.year * 100 + first.month;
       final secondPeriod = second.year * 100 + second.month;
+      final periodCompare =
+          secondPeriod.compareTo(firstPeriod);
 
-      return secondPeriod.compareTo(firstPeriod);
+      if (periodCompare != 0) return periodCompare;
+
+      final sequenceCompare = second.sequenceNumber
+          .compareTo(first.sequenceNumber);
+
+      if (sequenceCompare != 0) return sequenceCompare;
+
+      final firstCreated =
+          first.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final secondCreated =
+          second.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+
+      return secondCreated.compareTo(firstCreated);
     });
 
     return invoices;
+  }
+
+  String _invoiceId({
+    required String providerId,
+    required int month,
+    required int year,
+    required int sequenceNumber,
+  }) {
+    final safeProviderId = providerId
+        .trim()
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '');
+
+    return '${safeProviderId}_${year}_'
+        '${month.toString().padLeft(2, '0')}_'
+        '${sequenceNumber.toString().padLeft(2, '0')}';
   }
 
   String _paymentReference({
     required String providerId,
     required int month,
     required int year,
+    required int sequenceNumber,
   }) {
     final shortProviderId = providerId.length > 8
         ? providerId.substring(0, 8)
         : providerId;
 
     return 'HH${month.toString().padLeft(2, '0')}'
-            '$year$shortProviderId'
+            '$year'
+            'D${sequenceNumber.toString().padLeft(2, '0')}'
+            '$shortProviderId'
         .toUpperCase()
         .replaceAll(RegExp(r'[^A-Z0-9]'), '');
   }

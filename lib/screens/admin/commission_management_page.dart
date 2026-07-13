@@ -16,8 +16,7 @@ class CommissionManagementPage extends StatefulWidget {
 
 class _CommissionManagementPageState
     extends State<CommissionManagementPage> {
-  final CommissionService _commissionService =
-      CommissionService();
+  final CommissionService _commissionService = CommissionService();
 
   String _status = 'all';
   String? _processingId;
@@ -32,7 +31,9 @@ class _CommissionManagementPageState
 
     if (!mounted || created != true) return;
 
-    _message('Đã tạo hóa đơn hoa hồng.');
+    _message(
+      'Đã tạo hóa đơn hoa hồng cho doanh thu/phạt mới.',
+    );
   }
 
   Future<void> _configurePayment() async {
@@ -54,20 +55,43 @@ class _CommissionManagementPageState
         return AlertDialog(
           icon: const Icon(Icons.verified_outlined),
           title: const Text('Xác nhận đã nhận tiền?'),
-          content: Text(
-            '${invoice.providerName}\n'
-            '${invoice.periodLabel}\n'
-            '${_money(invoice.effectiveCommissionAmount)}',
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                invoice.providerName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(invoice.fullPeriodLabel),
+              const SizedBox(height: 10),
+              _DialogAmountRow(
+                label: 'Hoa hồng',
+                value: invoice.effectiveBaseCommissionAmount,
+              ),
+              if (invoice.hasPenalty)
+                _DialogAmountRow(
+                  label: 'Phạt vi phạm',
+                  value: invoice.effectivePenaltyAmount,
+                ),
+              const Divider(height: 18),
+              _DialogAmountRow(
+                label: 'Tổng nhận',
+                value: invoice.totalPayableAmount,
+                highlight: true,
+              ),
+            ],
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('Hủy'),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, true),
+              onPressed: () => Navigator.pop(dialogContext, true),
               child: const Text('Đã nhận tiền'),
             ),
           ],
@@ -80,9 +104,7 @@ class _CommissionManagementPageState
     setState(() => _processingId = invoice.id);
 
     try {
-      await _commissionService.confirmCommissionPayment(
-        invoice.id,
-      );
+      await _commissionService.confirmCommissionPayment(invoice.id);
 
       if (!mounted) return;
       _message('Đã xác nhận thanh toán hoa hồng.');
@@ -113,8 +135,7 @@ class _CommissionManagementPageState
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Hủy'),
             ),
             FilledButton(
@@ -181,9 +202,7 @@ class _CommissionManagementPageState
           SizedBox(
             height: 58,
             child: ListView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 20,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 20),
               scrollDirection: Axis.horizontal,
               children: [
                 _filterChip('all', 'Tất cả'),
@@ -219,9 +238,7 @@ class _CommissionManagementPageState
 
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text(
-                      _cleanError(snapshot.error),
-                    ),
+                    child: Text(_cleanError(snapshot.error)),
                   );
                 }
 
@@ -246,8 +263,7 @@ class _CommissionManagementPageState
 
                     return _InvoiceCard(
                       invoice: invoice,
-                      processing:
-                          _processingId == invoice.id,
+                      processing: _processingId == invoice.id,
                       onConfirm: () => _confirm(invoice),
                       onReject: () => _reject(invoice),
                     );
@@ -294,6 +310,8 @@ class _InvoiceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     final effectiveStatus = invoice.isPastDue &&
             invoice.status == CommissionStatus.unpaid
         ? CommissionStatus.overdue
@@ -311,8 +329,10 @@ class _InvoiceCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const CircleAvatar(
-                  child: Icon(Icons.percent_rounded),
+                CircleAvatar(
+                  backgroundColor: colors.primaryContainer,
+                  foregroundColor: colors.onPrimaryContainer,
+                  child: const Icon(Icons.percent_rounded),
                 ),
                 const SizedBox(width: 11),
                 Expanded(
@@ -327,36 +347,68 @@ class _InvoiceCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 3),
-                      Text(invoice.periodLabel),
+                      Wrap(
+                        spacing: 7,
+                        runSpacing: 6,
+                        crossAxisAlignment:
+                            WrapCrossAlignment.center,
+                        children: [
+                          Text(invoice.periodLabel),
+                          _MiniBadge(
+                            label: invoice.sequenceLabel,
+                            color: colors.primary,
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
                 _StatusBadge(
-                  label: CommissionStatus.label(
-                    effectiveStatus,
-                  ),
+                  label: CommissionStatus.label(effectiveStatus),
                   color: color,
                 ),
               ],
             ),
             const Divider(height: 25),
             _InvoiceRow(
-              label: 'Booking',
-              value: '${invoice.bookingIds.length}',
+              label: 'Mã thanh toán',
+              value: invoice.paymentReference,
             ),
             _InvoiceRow(
-              label: 'Tổng doanh thu',
+              label: 'Booking mới đã tính',
+              value: '${invoice.bookingIds.length}',
+            ),
+            if (invoice.violationRecordIds.isNotEmpty)
+              _InvoiceRow(
+                label: 'Biên bản phạt đã tính',
+                value: '${invoice.violationRecordIds.length}',
+              ),
+            _InvoiceRow(
+              label: 'Tổng doanh thu mới',
               value: _money(invoice.grossRevenue),
             ),
             _InvoiceRow(
               label:
-                  'Hoa hồng '
-                  '${(invoice.commissionRate * 100).round()}%',
-              value: _money(
-                invoice.effectiveCommissionAmount,
+                  'Hoa hồng ${(invoice.commissionRate * 100).round()}%',
+              value: _money(invoice.effectiveBaseCommissionAmount),
+            ),
+            if (invoice.hasPenalty)
+              _InvoiceRow(
+                label: 'Phạt vi phạm',
+                value: _money(invoice.effectivePenaltyAmount),
               ),
+            _InvoiceRow(
+              label: 'Tổng phải thu',
+              value: _money(invoice.totalPayableAmount),
               highlight: true,
             ),
+            if (invoice.periodStart != null &&
+                invoice.periodEnd != null)
+              _InvoiceRow(
+                label: 'Kỳ dữ liệu',
+                value:
+                    '${_date(invoice.periodStart!)} - ${_date(invoice.periodEnd!)}',
+              ),
             if (invoice.dueDate != null)
               _InvoiceRow(
                 label: 'Hạn thanh toán',
@@ -367,7 +419,8 @@ class _InvoiceCard extends StatelessWidget {
               Text(
                 invoice.rejectionReason,
                 style: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
+                  color: colors.error,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
@@ -382,9 +435,7 @@ class _InvoiceCard extends StatelessWidget {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: onReject,
-                      icon: const Icon(
-                        Icons.close_rounded,
-                      ),
+                      icon: const Icon(Icons.close_rounded),
                       label: const Text('Chưa nhận tiền'),
                     ),
                   ),
@@ -392,9 +443,7 @@ class _InvoiceCard extends StatelessWidget {
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: onConfirm,
-                      icon: const Icon(
-                        Icons.verified_outlined,
-                      ),
+                      icon: const Icon(Icons.verified_outlined),
                       label: const Text('Đã nhận tiền'),
                     ),
                   ),
@@ -423,9 +472,8 @@ class _CreateInvoiceDialog extends StatefulWidget {
 class _CreateInvoiceDialogState
     extends State<_CreateInvoiceDialog> {
   late final Future<
-    List<QueryDocumentSnapshot<Map<String, dynamic>>>
-  >
-  _providersFuture;
+      List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _providersFuture;
 
   String? _providerId;
   late int _month;
@@ -483,132 +531,169 @@ class _CreateInvoiceDialogState
   @override
   Widget build(BuildContext context) {
     final currentYear = DateTime.now().year;
+    final colors = Theme.of(context).colorScheme;
 
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 24,
+      ),
       title: const Text('Tạo hóa đơn hoa hồng'),
-      content: SizedBox(
-        width: 430,
-        child: FutureBuilder<
-          List<QueryDocumentSnapshot<Map<String, dynamic>>>
-        >(
-          future: _providersFuture,
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) {
-              return const SizedBox(
-                height: 160,
-                child: Center(
-                  child: CircularProgressIndicator(),
-                ),
-              );
-            }
+      content: SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 430),
+          child: FutureBuilder<
+              List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+            future: _providersFuture,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const SizedBox(
+                  height: 160,
+                  child: Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
 
-            final providers = snapshot.data!;
+              final providers = snapshot.data!;
 
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  initialValue: _providerId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Nhà cung cấp',
-                    prefixIcon: Icon(
-                      Icons.storefront_outlined,
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colors.primaryContainer
+                          .withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: colors.outlineVariant,
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            color: colors.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'Có thể lập nhiều hóa đơn trong cùng tháng. '
+                              'Hệ thống chỉ lấy booking và khoản phạt mới '
+                              'chưa từng được tính vào hóa đơn trước.',
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  items: providers.map((document) {
-                    final data = document.data();
-
-                    return DropdownMenuItem(
-                      value: document.id,
-                      child: Text(
-                        data['businessName']?.toString() ??
-                            'Nhà cung cấp',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    setState(() => _providerId = value);
-                  },
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        initialValue: _month,
-                        decoration: const InputDecoration(
-                          labelText: 'Tháng',
-                        ),
-                        items: List.generate(12, (index) {
-                          final month = index + 1;
-
-                          return DropdownMenuItem(
-                            value: month,
-                            child: Text('Tháng $month'),
-                          );
-                        }),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _month = value);
-                          }
-                        },
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    initialValue: _providerId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Nhà cung cấp',
+                      prefixIcon: Icon(
+                        Icons.storefront_outlined,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        initialValue: _year,
-                        decoration: const InputDecoration(
-                          labelText: 'Năm',
+                    items: providers.map((document) {
+                      final data = document.data();
+
+                      return DropdownMenuItem(
+                        value: document.id,
+                        child: Text(
+                          data['businessName']?.toString() ??
+                              'Nhà cung cấp',
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        items: [
-                          currentYear - 1,
-                          currentYear,
-                        ].map((year) {
-                          return DropdownMenuItem(
-                            value: year,
-                            child: Text('$year'),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _year = value);
-                          }
-                        },
+                      );
+                    }).toList(),
+                    onChanged: _creating
+                        ? null
+                        : (value) {
+                            setState(() => _providerId = value);
+                          },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    initialValue: _month,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Tháng',
+                      prefixIcon: Icon(Icons.calendar_month_outlined),
+                    ),
+                    items: List.generate(12, (index) {
+                      final month = index + 1;
+
+                      return DropdownMenuItem(
+                        value: month,
+                        child: Text('Tháng $month'),
+                      );
+                    }),
+                    onChanged: _creating
+                        ? null
+                        : (value) {
+                            if (value != null) {
+                              setState(() => _month = value);
+                            }
+                          },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    initialValue: _year,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Năm',
+                      prefixIcon: Icon(Icons.event_outlined),
+                    ),
+                    items: [
+                      currentYear - 1,
+                      currentYear,
+                      currentYear + 1,
+                    ].map((year) {
+                      return DropdownMenuItem(
+                        value: year,
+                        child: Text('$year'),
+                      );
+                    }).toList(),
+                    onChanged: _creating
+                        ? null
+                        : (value) {
+                            if (value != null) {
+                              setState(() => _year = value);
+                            }
+                          },
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: colors.error,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .error,
-                    ),
-                  ),
                 ],
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
       actions: [
         TextButton(
-          onPressed: _creating
-              ? null
-              : () => Navigator.pop(context),
+          onPressed:
+              _creating ? null : () => Navigator.pop(context),
           child: const Text('Hủy'),
         ),
         FilledButton.icon(
           onPressed:
-              _creating || _providerId == null
-              ? null
-              : _create,
+              _creating || _providerId == null ? null : _create,
           icon: _creating
               ? const SizedBox.square(
                   dimension: 17,
@@ -665,8 +750,7 @@ class _AppPaymentSettingsPageState
 
     final banks = results[0] as List<VietQrBank>;
     final snapshot =
-        results[1]
-            as DocumentSnapshot<Map<String, dynamic>>;
+        results[1] as DocumentSnapshot<Map<String, dynamic>>;
 
     final data = snapshot.data();
 
@@ -694,8 +778,7 @@ class _AppPaymentSettingsPageState
   }
 
   Future<void> _save() async {
-    if (_saving ||
-        !_formKey.currentState!.validate()) {
+    if (_saving || !_formKey.currentState!.validate()) {
       return;
     }
 
@@ -710,16 +793,15 @@ class _AppPaymentSettingsPageState
           .collection('appSettings')
           .doc('payment')
           .set({
-            'bankBin': bank.bin,
-            'bankCode': bank.code,
-            'bankName': bank.name,
-            'accountNumber': _accountController.text
-                .replaceAll(RegExp(r'\s+'), ''),
-            'accountName':
-                _nameController.text.trim().toUpperCase(),
-            'isActive': _active,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+        'bankBin': bank.bin,
+        'bankCode': bank.code,
+        'bankName': bank.name,
+        'accountNumber': _accountController.text
+            .replaceAll(RegExp(r'\s+'), ''),
+        'accountName': _nameController.text.trim().toUpperCase(),
+        'isActive': _active,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       if (!mounted) return;
       Navigator.pop(context, true);
@@ -829,8 +911,7 @@ class _AppPaymentSettingsPageState
 
                     return null;
                   },
-                  textCapitalization:
-                      TextCapitalization.characters,
+                  textCapitalization: TextCapitalization.characters,
                   decoration: const InputDecoration(
                     labelText: 'Tên chủ tài khoản',
                     prefixIcon: Icon(Icons.badge_outlined),
@@ -882,6 +963,40 @@ class _AppPaymentSettingsPageState
   }
 }
 
+class _DialogAmountRow extends StatelessWidget {
+  const _DialogAmountRow({
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final String label;
+  final double value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
+        children: [
+          Expanded(child: Text(label)),
+          Text(
+            _money(value),
+            style: TextStyle(
+              color: highlight
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+              fontWeight:
+                  highlight ? FontWeight.w900 : FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _InvoiceRow extends StatelessWidget {
   const _InvoiceRow({
     required this.label,
@@ -900,13 +1015,17 @@ class _InvoiceRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(child: Text(label)),
-          Text(
-            value,
-            style: TextStyle(
-              color: highlight
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
-              fontWeight: FontWeight.w900,
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: highlight
+                    ? Theme.of(context).colorScheme.primary
+                    : null,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ],
@@ -942,6 +1061,40 @@ class _StatusBadge extends StatelessWidget {
             color: color,
             fontSize: 11,
             fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniBadge extends StatelessWidget {
+  const _MiniBadge({
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 7,
+          vertical: 4,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
           ),
         ),
       ),

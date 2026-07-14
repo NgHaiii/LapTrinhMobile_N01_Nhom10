@@ -13,20 +13,19 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
-  # --- Cấu hình Firebase ---
-  firebase_core: ^3.6.0         # Thư viện lõi kết nối Firebase
-  firebase_auth: ^5.3.1         # Chức năng Đăng nhập / Đăng ký
-  cloud_firestore: ^5.4.4       # Cơ sở dữ liệu lưu Tour, Địa điểm, Bài viết
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.4
 
-  # --- Thư viện bổ trợ nên có cho App Du Lịch ---
-  google_fonts: ^6.2.1          # Sử dụng font chữ hiện đại (Roboto, Montserrat...)
-  cached_network_image: ^3.4.1  # Load ảnh từ internet nhanh, mượt, không bị giật
-  provider: ^6.1.2              # Quản lý trạng thái ứng dụng (State Management)
+  google_fonts: ^6.2.1
+  cached_network_image: ^3.4.1
+  provider: ^6.1.2
   image_picker: ^1.2.2
   http: ^1.6.0
+  url_launcher: ^6.3.2
+
   flutter_localizations:
     sdk: flutter
-  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
@@ -36,6 +35,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # Cấu hình Assets sau này (nếu bạn muốn dùng ảnh có sẵn trong máy)
-  # assets:
-  #   - assets/images/
+  assets:
+    - assets/images/auth/

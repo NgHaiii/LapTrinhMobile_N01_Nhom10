@@ -1724,6 +1724,243 @@ match /violationRecords/{violationId} {
       || resource.data.status == 'cancelled'
     );
 }
+
+/*
+ * TRAVEL PLACES
+ */
+match /travelPlaces/{placeId} {
+  allow read: if activeUser();
+  allow create, update, delete: if isAdmin();
+}
+
+/*
+ * SAVED PLACES
+ */
+match /savedPlaces/{savedPlaceId} {
+  function savedPlaceOwner() {
+    return activeUser()
+      && request.resource.data.userId == request.auth.uid;
+  }
+
+  function existingSavedPlaceOwner() {
+    return activeUser()
+      && resource.data.userId == request.auth.uid;
+  }
+
+  allow read: if existingSavedPlaceOwner() || isAdmin();
+
+  allow create: if savedPlaceOwner()
+    && request.resource.data.keys().hasOnly([
+      'userId',
+      'placeId',
+      'name',
+      'type',
+      'imageUrl',
+      'address',
+      'province',
+      'district',
+      'rating',
+      'note',
+      'createdAt'
+    ])
+    && request.resource.data.type in [
+      'hotel',
+      'travelPlace'
+    ];
+
+  allow update: if existingSavedPlaceOwner()
+    && request.resource.data.userId == resource.data.userId
+    && request.resource.data.placeId == resource.data.placeId
+    && request.resource.data.type == resource.data.type;
+
+  allow delete: if existingSavedPlaceOwner() || isAdmin();
+}
+
+/*
+ * VOUCHERS
+ * Admin tạo voucher. Khách chỉ đọc và được tăng usedCount khi đổi/lưu voucher.
+ */
+match /vouchers/{voucherId} {
+  function activeVoucher() {
+    return resource.data.isActive == true
+      && (
+        !('startAt' in resource.data)
+        || resource.data.startAt == null
+        || resource.data.startAt <= request.time
+      )
+      && (
+        !('endAt' in resource.data)
+        || resource.data.endAt == null
+        || resource.data.endAt >= request.time
+      )
+      && (
+        !('quantity' in resource.data)
+        || resource.data.quantity <= 0
+        || resource.data.usedCount < resource.data.quantity
+      );
+  }
+
+  function userIncrementsUsedCountOnly() {
+    let changed = request.resource.data
+      .diff(resource.data)
+      .affectedKeys();
+
+    return activeUser()
+      && activeVoucher()
+      && changed.hasOnly([
+        'usedCount',
+        'updatedAt'
+      ])
+      && request.resource.data.usedCount == resource.data.usedCount + 1
+      && request.resource.data.updatedAt is timestamp;
+  }
+
+  allow read: if activeUser();
+
+  allow create, delete: if isAdmin();
+
+  allow update: if isAdmin()
+    || userIncrementsUsedCountOnly();
+}
+
+/*
+ * USER VOUCHERS
+ */
+match /userVouchers/{userVoucherId} {
+  function userVoucherOwnerCreate() {
+    return activeUser()
+      && request.resource.data.userId == request.auth.uid;
+  }
+
+  function userVoucherOwnerRead() {
+    return activeUser()
+      && resource.data.userId == request.auth.uid;
+  }
+
+  function validUserVoucherStatus(status) {
+    return status in [
+      'available',
+      'used',
+      'expired'
+    ];
+  }
+
+  allow read: if userVoucherOwnerRead() || isAdmin();
+
+  allow create: if userVoucherOwnerCreate()
+    && request.resource.data.keys().hasOnly([
+      'userId',
+      'voucherId',
+      'code',
+      'title',
+      'status',
+      'redeemedByPoints',
+      'pointsSpent',
+      'bookingId',
+      'usedAt',
+      'expiredAt',
+      'createdAt'
+    ])
+    && validUserVoucherStatus(request.resource.data.status)
+    && request.resource.data.status == 'available'
+    && request.resource.data.voucherId is string
+    && request.resource.data.voucherId.size() > 0
+    && request.resource.data.code is string
+    && request.resource.data.title is string;
+
+  allow update: if userVoucherOwnerRead()
+    && request.resource.data.userId == resource.data.userId
+    && request.resource.data.voucherId == resource.data.voucherId
+    && validUserVoucherStatus(request.resource.data.status);
+
+  allow delete: if isAdmin();
+}
+
+/*
+ * LOYALTY POINTS
+ */
+match /loyaltyPoints/{userId} {
+  allow read: if activeUser()
+    && (
+      request.auth.uid == userId
+      || isAdmin()
+    );
+
+  allow create, update: if activeUser()
+    && (
+      request.auth.uid == userId
+      || isAdmin()
+    );
+
+  allow delete: if isAdmin();
+}
+
+/*
+ * POINT TRANSACTIONS
+ */
+match /pointTransactions/{transactionId} {
+  function pointTransactionOwnerCreate() {
+    return activeUser()
+      && request.resource.data.userId == request.auth.uid;
+  }
+
+  function pointTransactionOwnerRead() {
+    return activeUser()
+      && resource.data.userId == request.auth.uid;
+  }
+
+  allow read: if pointTransactionOwnerRead() || isAdmin();
+
+  allow create: if pointTransactionOwnerCreate()
+    || isAdmin();
+
+  allow update, delete: if isAdmin();
+}
+
+/*
+ * TRAVEL CHAT MESSAGES
+ */
+match /travelChatMessages/{messageId} {
+  function chatOwnerCreate() {
+    return activeUser()
+      && request.resource.data.userId == request.auth.uid;
+  }
+
+  function chatOwnerRead() {
+    return activeUser()
+      && resource.data.userId == request.auth.uid;
+  }
+
+  allow read: if chatOwnerRead() || isAdmin();
+
+  allow create: if chatOwnerCreate()
+    && request.resource.data.keys().hasOnly([
+      'id',
+      'sessionId',
+      'userId',
+      'content',
+      'sender',
+      'type',
+      'suggestionIds',
+      'createdAt'
+    ]);
+
+  allow update: if false;
+
+  allow delete: if chatOwnerRead() || isAdmin();
+}
+
+/*
+ * TRAVEL SUGGESTIONS
+ */
+match /travelSuggestions/{suggestionId} {
+  allow read: if activeUser();
+
+  allow create: if activeUser();
+
+  allow update, delete: if isAdmin();
+}
+
     /*
      * APPLICATION SETTINGS
      */

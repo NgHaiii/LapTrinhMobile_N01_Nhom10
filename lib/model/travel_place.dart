@@ -23,6 +23,19 @@ enum TravelPlaceCategory {
     };
   }
 
+  String get emoji {
+    return switch (this) {
+      TravelPlaceCategory.beach => 'Biển',
+      TravelPlaceCategory.mountain => 'Núi',
+      TravelPlaceCategory.culture => 'Văn hóa',
+      TravelPlaceCategory.food => 'Ẩm thực',
+      TravelPlaceCategory.entertainment => 'Vui chơi',
+      TravelPlaceCategory.shopping => 'Mua sắm',
+      TravelPlaceCategory.nature => 'Thiên nhiên',
+      TravelPlaceCategory.other => 'Khám phá',
+    };
+  }
+
   static TravelPlaceCategory fromValue(String? value) {
     return TravelPlaceCategory.values.firstWhere(
       (item) => item.name == value,
@@ -86,8 +99,16 @@ class TravelPlaceModel {
     return images.isEmpty ? '' : images.first;
   }
 
+  bool get hasImages {
+    return images.isNotEmpty;
+  }
+
   bool get hasLocation {
     return latitude != null && longitude != null;
+  }
+
+  bool get isFree {
+    return ticketPrice <= 0;
   }
 
   factory TravelPlaceModel.fromDoc(
@@ -142,7 +163,9 @@ class TravelPlaceModel {
       'isFeatured': isFeatured,
       'isActive': isActive,
       'tags': tags,
-      'createdAt': createdAt == null ? FieldValue.serverTimestamp() : createdAt,
+      'createdAt': createdAt == null
+          ? FieldValue.serverTimestamp()
+          : Timestamp.fromDate(createdAt!),
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -196,6 +219,7 @@ List<String> _stringList(dynamic value) {
   if (value is List) {
     return value.whereType<String>().toList();
   }
+
   return const [];
 }
 

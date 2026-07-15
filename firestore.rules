@@ -1737,20 +1737,30 @@ match /travelPlaces/{placeId} {
  * SAVED PLACES
  */
 match /savedPlaces/{savedPlaceId} {
-  function savedPlaceOwner() {
+  function savedPlacePath() {
+    return /databases/$(database)
+      /documents/savedPlaces/$(savedPlaceId);
+  }
+
+  function savedPlaceOwnerCreate() {
     return activeUser()
       && request.resource.data.userId == request.auth.uid;
   }
 
-  function existingSavedPlaceOwner() {
+  function savedPlaceOwnerRead() {
     return activeUser()
       && resource.data.userId == request.auth.uid;
   }
 
-  allow read: if existingSavedPlaceOwner() || isAdmin();
+  function validSavedPlaceType(type) {
+    return type in [
+      'hotel',
+      'travelPlace'
+    ];
+  }
 
-  allow create: if savedPlaceOwner()
-    && request.resource.data.keys().hasOnly([
+  function validSavedPlaceData() {
+    return request.resource.data.keys().hasOnly([
       'userId',
       'placeId',
       'name',
@@ -1763,19 +1773,52 @@ match /savedPlaces/{savedPlaceId} {
       'note',
       'createdAt'
     ])
-    && request.resource.data.type in [
-      'hotel',
-      'travelPlace'
-    ];
+    && request.resource.data.userId == request.auth.uid
+    && request.resource.data.placeId is string
+    && request.resource.data.placeId.size() > 0
+    && request.resource.data.name is string
+    && request.resource.data.name.size() > 0
+    && request.resource.data.name.size() <= 200
+    && validSavedPlaceType(request.resource.data.type)
+    && request.resource.data.imageUrl is string
+    && request.resource.data.imageUrl.size() <= 1000
+    && request.resource.data.address is string
+    && request.resource.data.address.size() <= 500
+    && request.resource.data.province is string
+    && request.resource.data.province.size() <= 100
+    && request.resource.data.district is string
+    && request.resource.data.district.size() <= 100
+    && request.resource.data.rating is number
+    && request.resource.data.rating >= 0
+    && request.resource.data.rating <= 5
+    && request.resource.data.note is string
+    && request.resource.data.note.size() <= 500;
+  }
 
-  allow update: if existingSavedPlaceOwner()
+  allow get: if activeUser()
+    && (
+      isAdmin()
+      || !exists(savedPlacePath())
+      || resource.data.userId == request.auth.uid
+    );
+
+  allow list: if activeUser()
+    && (
+      isAdmin()
+      || resource.data.userId == request.auth.uid
+    );
+
+  allow create: if savedPlaceOwnerCreate()
+    && validSavedPlaceData();
+
+  allow update: if savedPlaceOwnerRead()
     && request.resource.data.userId == resource.data.userId
     && request.resource.data.placeId == resource.data.placeId
-    && request.resource.data.type == resource.data.type;
+    && request.resource.data.type == resource.data.type
+    && validSavedPlaceData();
 
-  allow delete: if existingSavedPlaceOwner() || isAdmin();
+  allow delete: if savedPlaceOwnerRead() || isAdmin();
 }
-
 /*
  * VOUCHERS
  * Admin tạo voucher. Khách chỉ đọc và được tăng usedCount khi đổi/lưu voucher.

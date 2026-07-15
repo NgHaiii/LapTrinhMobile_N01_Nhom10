@@ -6,6 +6,8 @@ import '../../../model/saved_place.dart';
 import '../../../model/travel_place.dart';
 import '../../../services/saved_place_service.dart';
 import '../../../services/travel_place_service.dart';
+import '../nearby_hotels_page.dart';
+import 'widgets/travel_place_hero.dart';
 
 class TravelPlaceDetailsPage extends StatefulWidget {
   const TravelPlaceDetailsPage({
@@ -24,17 +26,14 @@ class TravelPlaceDetailsPage extends StatefulWidget {
 }
 
 class _TravelPlaceDetailsPageState extends State<TravelPlaceDetailsPage> {
-  late final TravelPlaceService _service;
   late final SavedPlaceService _savedService;
 
-  int _imageIndex = 0;
   bool _saved = false;
   bool _loadingSaved = true;
 
   @override
   void initState() {
     super.initState();
-    _service = widget.service ?? TravelPlaceService();
     _savedService = widget.savedService ?? SavedPlaceService();
     _loadSaved();
   }
@@ -42,28 +41,38 @@ class _TravelPlaceDetailsPageState extends State<TravelPlaceDetailsPage> {
   Future<void> _loadSaved() async {
     final userId = FirebaseAuth.instance.currentUser?.uid;
 
-    if (userId == null) {
+    if (userId == null || userId.isEmpty) {
+      if (!mounted) return;
       setState(() => _loadingSaved = false);
       return;
     }
 
-    final saved = await _savedService.isSaved(
-      placeId: widget.place.id,
-      type: SavedPlaceType.travelPlace,
-    );
+    try {
+      final saved = await _savedService.isSaved(
+        placeId: widget.place.id,
+        type: SavedPlaceType.travelPlace,
+      );
 
-    if (!mounted) return;
-    setState(() {
-      _saved = saved;
-      _loadingSaved = false;
-    });
+      if (!mounted) return;
+
+      setState(() {
+        _saved = saved;
+        _loadingSaved = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingSaved = false);
+    }
   }
 
   Future<void> _toggleSaved() async {
+    if (_loadingSaved) return;
+
     try {
       final saved = await _savedService.toggleTravelPlace(widget.place);
 
       if (!mounted) return;
+
       setState(() => _saved = saved);
       _message(saved ? 'Đã lưu địa điểm.' : 'Đã bỏ lưu địa điểm.');
     } catch (error) {
@@ -74,23 +83,35 @@ class _TravelPlaceDetailsPageState extends State<TravelPlaceDetailsPage> {
 
   Future<void> _openMap() async {
     final place = widget.place;
-    final query = Uri.encodeComponent(place.fullAddress.isEmpty
+    final fallbackQuery = place.fullAddress.isEmpty
         ? '${place.name}, ${place.province}'
-        : place.fullAddress);
+        : '${place.name}, ${place.fullAddress}';
 
     final uri = place.hasLocation
         ? Uri.parse(
             'https://www.google.com/maps/search/?api=1&query=${place.latitude},${place.longitude}',
           )
-        : Uri.parse('https://www.google.com/maps/search/?api=1&query=$query');
+        : Uri.parse(
+            'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(fallbackQuery)}',
+          );
 
     final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
 
     if (!mounted) return;
 
     if (!opened) {
-      _message('Không thể mở bản đồ.');
+      _message('Không thể mở Google Maps.');
     }
+  }
+
+  void _openNearbyHotels() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NearbyHotelsPage(
+          place: widget.place,
+        ),
+      ),
+    );
   }
 
   void _message(String message) {
@@ -102,164 +123,141 @@ class _TravelPlaceDetailsPageState extends State<TravelPlaceDetailsPage> {
   @override
   Widget build(BuildContext context) {
     final place = widget.place;
-    final images = place.images;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4FAF9),
+      backgroundColor: const Color(0xFFF4FBF8),
       body: CustomScrollView(
         slivers: [
-          SliverAppBar(
-            expandedHeight: 310,
-            pinned: true,
-            actions: [
-              IconButton.filledTonal(
-                tooltip: _saved ? 'Bỏ lưu' : 'Lưu địa điểm',
-                onPressed: _loadingSaved ? null : _toggleSaved,
-                icon: Icon(
-                  _saved
-                      ? Icons.bookmark_rounded
-                      : Icons.bookmark_border_rounded,
-                ),
-              ),
-              const SizedBox(width: 10),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              background: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (images.isEmpty)
-                    const ColoredBox(
-                      color: Color(0xFFD7F7FA),
-                      child: Icon(
-                        Icons.terrain_rounded,
-                        color: Color(0xFF087F8C),
-                        size: 72,
-                      ),
-                    )
-                  else
-                    PageView.builder(
-                      itemCount: images.length,
-                      onPageChanged: (value) {
-                        setState(() => _imageIndex = value);
-                      },
-                      itemBuilder: (context, index) {
-                        return Image.network(
-                          images[index],
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) {
-                            return const ColoredBox(
-                              color: Color(0xFFD7F7FA),
-                              child: Icon(
-                                Icons.image_not_supported_outlined,
-                                color: Color(0xFF087F8C),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.12),
-                          Colors.transparent,
-                          Colors.black.withOpacity(0.55),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 18,
-                    right: 18,
-                    bottom: 18,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _CategoryBadge(label: place.category.label),
-                        const SizedBox(height: 10),
-                        Text(
-                          place.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            height: 1.05,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        if (images.length > 1) ...[
-                          const SizedBox(height: 10),
-                          Row(
-                            children: List.generate(images.length, (index) {
-                              return AnimatedContainer(
-                                duration: const Duration(milliseconds: 220),
-                                width: index == _imageIndex ? 24 : 7,
-                                height: 7,
-                                margin: const EdgeInsets.only(right: 4),
-                                decoration: BoxDecoration(
-                                  color: index == _imageIndex
-                                      ? Colors.white
-                                      : Colors.white.withOpacity(0.45),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              );
-                            }),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          TravelPlaceHero(
+            place: place,
+            isSaved: _saved,
+            onToggleSaved: _loadingSaved ? () {} : _toggleSaved,
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _InfoCard(place: place, onOpenMap: _openMap),
+                  _QuickSummary(place: place, onOpenMap: _openMap),
                   const SizedBox(height: 18),
-                  const _SectionTitle(title: 'Giới thiệu'),
-                  const SizedBox(height: 8),
-                  Text(
-                    place.description.isEmpty
-                        ? 'Địa điểm này đang được TravelHub cập nhật thêm thông tin.'
-                        : place.description,
-                    style: const TextStyle(
-                      color: Color(0xFF3B5155),
-                      fontWeight: FontWeight.w600,
-                      height: 1.45,
+                  _SectionCard(
+                    title: 'Vì sao nên đến đây?',
+                    icon: Icons.auto_awesome_rounded,
+                    child: Text(
+                      place.description.isEmpty
+                          ? 'TravelHub đang cập nhật thêm thông tin cho địa điểm này.'
+                          : place.description,
+                      style: const TextStyle(
+                        color: Color(0xFF3B5155),
+                        fontSize: 15,
+                        height: 1.55,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _SectionCard(
+                    title: 'Gợi ý trải nghiệm',
+                    icon: Icons.route_rounded,
+                    child: _ExperienceList(place: place),
+                  ),
+                  const SizedBox(height: 14),
+                  _SectionCard(
+                    title: 'Thông tin tham quan',
+                    icon: Icons.info_outline_rounded,
+                    child: Column(
+                      children: [
+                        _InfoRow(
+                          icon: Icons.place_outlined,
+                          label: 'Địa chỉ',
+                          value: place.fullAddress.isEmpty
+                              ? 'Đang cập nhật'
+                              : place.fullAddress,
+                          onTap: _openMap,
+                        ),
+                        const Divider(height: 18),
+                        _InfoRow(
+                          icon: Icons.schedule_rounded,
+                          label: 'Giờ hoạt động',
+                          value: place.openingHours.isEmpty
+                              ? 'Linh hoạt / đang cập nhật'
+                              : place.openingHours,
+                        ),
+                        const Divider(height: 18),
+                        _InfoRow(
+                          icon: Icons.confirmation_number_outlined,
+                          label: 'Giá vé',
+                          value: place.isFree
+                              ? 'Miễn phí / đang cập nhật'
+                              : '${place.ticketPrice.round()}đ',
+                        ),
+                        const Divider(height: 18),
+                        _InfoRow(
+                          icon: Icons.star_rounded,
+                          label: 'Đánh giá',
+                          value: place.rating <= 0
+                              ? 'Chưa có đánh giá'
+                              : '${place.rating.toStringAsFixed(1)} / 5 từ ${place.reviewCount} lượt',
+                        ),
+                      ],
                     ),
                   ),
                   if (place.tags.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: place.tags
-                          .map(
-                            (tag) => Chip(
-                              label: Text(tag),
-                              avatar: const Icon(Icons.tag_rounded, size: 16),
-                            ),
-                          )
-                          .toList(),
+                    const SizedBox(height: 14),
+                    _SectionCard(
+                      title: 'Phù hợp với',
+                      icon: Icons.local_offer_outlined,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: place.tags.map((tag) {
+                          return Chip(
+                            visualDensity: VisualDensity.compact,
+                            avatar: const Icon(Icons.tag_rounded, size: 16),
+                            label: Text(tag),
+                          );
+                        }).toList(),
+                      ),
                     ),
                   ],
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _openNearbyHotels,
+                          icon: const Icon(Icons.hotel_rounded),
+                          label: const Text(
+                            'Đặt phòng gần đây',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _openMap,
+                          icon: const Icon(Icons.map_outlined),
+                          label: const Text(
+                            'Chỉ đường',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
-                    height: 52,
-                    child: FilledButton.icon(
-                      onPressed: _openMap,
-                      icon: const Icon(Icons.map_outlined),
-                      label: const Text('Mở chỉ đường Google Maps'),
+                    child: OutlinedButton.icon(
+                      onPressed: _loadingSaved ? null : _toggleSaved,
+                      icon: Icon(
+                        _saved
+                            ? Icons.bookmark_rounded
+                            : Icons.bookmark_border_rounded,
+                      ),
+                      label: Text(_saved ? 'Đã lưu địa điểm' : 'Lưu địa điểm'),
                     ),
                   ),
                 ],
@@ -272,8 +270,8 @@ class _TravelPlaceDetailsPageState extends State<TravelPlaceDetailsPage> {
   }
 }
 
-class _InfoCard extends StatelessWidget {
-  const _InfoCard({
+class _QuickSummary extends StatelessWidget {
+  const _QuickSummary({
     required this.place,
     required this.onOpenMap,
   });
@@ -285,45 +283,238 @@ class _InfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFFFFFFFF),
+            Color(0xFFEAFBF8),
+          ],
+        ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFD7E5E7)),
+        border: Border.all(color: const Color(0xFFD5E9E8)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF087F8C).withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Column(
+        child: Row(
           children: [
-            _InfoRow(
-              icon: Icons.location_on_outlined,
-              label: 'Địa chỉ',
-              value: place.fullAddress.isEmpty
-                  ? 'Đang cập nhật'
-                  : place.fullAddress,
-              onTap: onOpenMap,
+            _SummaryItem(
+              icon: Icons.category_rounded,
+              label: 'Loại hình',
+              value: place.category.label,
             ),
-            const Divider(),
-            _InfoRow(
-              icon: Icons.schedule_rounded,
-              label: 'Giờ mở cửa',
-              value:
-                  place.openingHours.isEmpty ? 'Đang cập nhật' : place.openingHours,
-            ),
-            const Divider(),
-            _InfoRow(
-              icon: Icons.confirmation_number_outlined,
-              label: 'Giá vé',
-              value: place.ticketPrice <= 0
-                  ? 'Miễn phí / Đang cập nhật'
-                  : '${place.ticketPrice.round()}đ',
-            ),
-            const Divider(),
-            _InfoRow(
+            const _SummaryDivider(),
+            _SummaryItem(
               icon: Icons.star_rounded,
-              label: 'Đánh giá',
-              value: place.rating <= 0
-                  ? 'Chưa có đánh giá'
-                  : '${place.rating.toStringAsFixed(1)} (${place.reviewCount} lượt)',
+              label: 'Điểm',
+              value: place.rating <= 0 ? '--' : place.rating.toStringAsFixed(1),
             ),
+            const _SummaryDivider(),
+            Expanded(
+              child: InkWell(
+                onTap: onOpenMap,
+                borderRadius: BorderRadius.circular(16),
+                child: _SummaryItem(
+                  icon: Icons.navigation_outlined,
+                  label: 'Khu vực',
+                  value: place.province,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryItem extends StatelessWidget {
+  const _SummaryItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: const Color(0xFFDDF8F5),
+            foregroundColor: const Color(0xFF087F8C),
+            child: Icon(icon, size: 20),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF6B7F82),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF102326),
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryDivider extends StatelessWidget {
+  const _SummaryDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 54,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      color: const Color(0xFFD5E9E8),
+    );
+  }
+}
+
+class _ExperienceList extends StatelessWidget {
+  const _ExperienceList({required this.place});
+
+  final TravelPlaceModel place;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _experiencesFor(place);
+
+    return Column(
+      children: items.map((item) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const CircleAvatar(
+                radius: 14,
+                backgroundColor: Color(0xFFDDF8F5),
+                foregroundColor: Color(0xFF087F8C),
+                child: Icon(Icons.check_rounded, size: 17),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  item,
+                  style: const TextStyle(
+                    color: Color(0xFF3B5155),
+                    height: 1.38,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  List<String> _experiencesFor(TravelPlaceModel place) {
+    return switch (place.category) {
+      TravelPlaceCategory.beach => [
+          'Tắm biển, ngắm bình minh hoặc hoàng hôn tại các bãi biển nổi bật.',
+          'Thưởng thức hải sản địa phương và khám phá các quán ăn ven biển.',
+          'Kết hợp nghỉ dưỡng, chụp ảnh và các hoạt động vui chơi ngoài trời.',
+        ],
+      TravelPlaceCategory.mountain => [
+          'Săn mây, ngắm núi và tận hưởng không khí mát lành vào sáng sớm.',
+          'Khám phá bản làng, cung đường đèo hoặc các điểm nhìn toàn cảnh.',
+          'Chuẩn bị giày thoải mái và áo khoác nhẹ để hành trình dễ chịu hơn.',
+        ],
+      TravelPlaceCategory.culture => [
+          'Đi bộ chậm để cảm nhận kiến trúc, lịch sử và nhịp sống địa phương.',
+          'Thử các món đặc sản nổi tiếng quanh khu trung tâm.',
+          'Ghé vào buổi chiều tối để có ánh sáng đẹp và không khí sống động hơn.',
+        ],
+      TravelPlaceCategory.nature => [
+          'Dành thời gian đi thuyền, ngắm cảnh và chụp ảnh phong cảnh.',
+          'Đi vào sáng sớm hoặc chiều muộn để tránh nắng và có ánh sáng đẹp.',
+          'Kết hợp thêm các điểm gần đó để có lịch trình trọn vẹn hơn.',
+        ],
+      _ => [
+          'Khám phá điểm nổi bật, chụp ảnh và thưởng thức không khí địa phương.',
+          'Lưu địa điểm để dễ lên lịch trình cho chuyến đi.',
+          'Hỏi AI TravelHub để được gợi ý lịch trình phù hợp hơn.',
+        ],
+    };
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFD7E5E7)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 17,
+                  backgroundColor: const Color(0xFFE0F8F5),
+                  foregroundColor: const Color(0xFF087F8C),
+                  child: Icon(icon, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: Color(0xFF102326),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 13),
+            child,
           ],
         ),
       ),
@@ -368,7 +559,7 @@ class _InfoRow extends StatelessWidget {
               ),
               Text(
                 value,
-                maxLines: 2,
+                maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Color(0xFF102326),
@@ -383,63 +574,13 @@ class _InfoRow extends StatelessWidget {
     );
 
     if (onTap == null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: content,
-      );
+      return content;
     }
 
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: content,
-      ),
-    );
-  }
-}
-
-class _CategoryBadge extends StatelessWidget {
-  const _CategoryBadge({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.92),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-        child: Text(
-          label,
-          style: const TextStyle(
-            color: Color(0xFF102326),
-            fontWeight: FontWeight.w900,
-            fontSize: 12,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            color: const Color(0xFF102326),
-            fontWeight: FontWeight.w900,
-          ),
+      child: content,
     );
   }
 }

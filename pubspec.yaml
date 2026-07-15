@@ -37,3 +37,14 @@ flutter:
 
   assets:
     - assets/images/auth/
+    - assets/images/travel/Da_Lat/
+    - assets/images/travel/Da_Nang/
+    - assets/images/travel/Ha_Giang/
+    - assets/images/travel/Ha_Long/
+    - assets/images/travel/Hoi_An/
+    - assets/images/travel/Hue/
+    - assets/images/travel/Nha_Trang/
+    - assets/images/travel/Ninh_Binh/
+    - assets/images/travel/Phu_Quoc/
+    - assets/images/travel/Quy_Nhon/
+    - assets/images/travel/Sa_Pa/

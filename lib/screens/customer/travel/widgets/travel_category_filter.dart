@@ -16,20 +16,45 @@ class TravelCategoryFilter extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = <_CategoryItem>[
       const _CategoryItem(null, 'Tất cả', Icons.explore_outlined),
-      ...TravelPlaceCategory.values.map(
-        (category) => _CategoryItem(
-          category,
-          _labelOf(category),
-          _iconOf(category),
-        ),
+      const _CategoryItem(
+        TravelPlaceCategory.beach,
+        'Biển đảo',
+        Icons.beach_access_outlined,
+      ),
+      const _CategoryItem(
+        TravelPlaceCategory.mountain,
+        'Núi rừng',
+        Icons.landscape_outlined,
+      ),
+      const _CategoryItem(
+        TravelPlaceCategory.culture,
+        'Văn hóa',
+        Icons.temple_buddhist_outlined,
+      ),
+      const _CategoryItem(
+        TravelPlaceCategory.nature,
+        'Thiên nhiên',
+        Icons.park_outlined,
+      ),
+      const _CategoryItem(
+        TravelPlaceCategory.food,
+        'Ẩm thực',
+        Icons.restaurant_outlined,
+      ),
+      const _CategoryItem(
+        TravelPlaceCategory.entertainment,
+        'Vui chơi',
+        Icons.attractions_outlined,
       ),
     ];
 
     return SizedBox(
-      height: 46,
+      height: 52,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final item = items[index];
           final selected = item.category == selectedCategory;
@@ -41,36 +66,8 @@ class TravelCategoryFilter extends StatelessWidget {
             onTap: () => onChanged(item.category),
           );
         },
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: items.length,
       ),
     );
-  }
-
-  static String _labelOf(TravelPlaceCategory category) {
-    return switch (category) {
-      TravelPlaceCategory.beach => 'Biển đảo',
-      TravelPlaceCategory.mountain => 'Núi rừng',
-      TravelPlaceCategory.culture => 'Văn hóa',
-      TravelPlaceCategory.food => 'Ẩm thực',
-      TravelPlaceCategory.entertainment => 'Giải trí',
-      TravelPlaceCategory.shopping => 'Mua sắm',
-      TravelPlaceCategory.nature => 'Thiên nhiên',
-      TravelPlaceCategory.other => 'Khác',
-    };
-  }
-
-  static IconData _iconOf(TravelPlaceCategory category) {
-    return switch (category) {
-      TravelPlaceCategory.beach => Icons.beach_access_outlined,
-      TravelPlaceCategory.mountain => Icons.landscape_outlined,
-      TravelPlaceCategory.culture => Icons.temple_buddhist_outlined,
-      TravelPlaceCategory.food => Icons.restaurant_outlined,
-      TravelPlaceCategory.entertainment => Icons.attractions_outlined,
-      TravelPlaceCategory.shopping => Icons.local_mall_outlined,
-      TravelPlaceCategory.nature => Icons.park_outlined,
-      TravelPlaceCategory.other => Icons.place_outlined,
-    };
   }
 }
 
@@ -91,46 +88,59 @@ class _CategoryChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
-    return InkWell(
+    return Material(
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? colors.primary : colors.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected ? colors.primary : colors.outlineVariant,
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: colors.primary.withValues(alpha: 0.22),
-                    blurRadius: 16,
-                    offset: const Offset(0, 8),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 17,
-              color: selected ? colors.onPrimary : colors.primary,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: selected
+                ? const LinearGradient(
+                    colors: [
+                      Color(0xFF087F8C),
+                      Color(0xFF17BEBB),
+                    ],
+                  )
+                : null,
+            color: selected ? null : colors.surface,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? Colors.transparent : colors.outlineVariant,
             ),
-            const SizedBox(width: 7),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? colors.onPrimary : colors.onSurface,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
+            boxShadow: [
+              BoxShadow(
+                color: selected
+                    ? const Color(0xFF087F8C).withValues(alpha: 0.24)
+                    : Colors.black.withValues(alpha: 0.035),
+                blurRadius: selected ? 18 : 10,
+                offset: const Offset(0, 7),
               ),
-            ),
-          ],
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                selected ? Icons.check_rounded : icon,
+                size: 17,
+                color: selected ? Colors.white : colors.primary,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? Colors.white : colors.onSurface,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

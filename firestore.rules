@@ -1916,7 +1916,66 @@ match /pointTransactions/{transactionId} {
 
   allow update, delete: if isAdmin();
 }
+/*
+ * TRAVEL CHAT SESSIONS
+ */
+match /travelChatSessions/{sessionId} {
+  function chatSessionOwnerCreate() {
+    return activeUser()
+      && request.resource.data.userId == request.auth.uid;
+  }
 
+  function chatSessionOwnerRead() {
+    return activeUser()
+      && resource.data.userId == request.auth.uid;
+  }
+
+  allow get: if activeUser()
+    && (
+      !exists(/databases/$(database)/documents/travelChatSessions/$(sessionId))
+      || resource.data.userId == request.auth.uid
+      || isAdmin()
+    );
+
+  allow list: if chatSessionOwnerRead() || isAdmin();
+
+  allow create: if chatSessionOwnerCreate()
+    && request.resource.data.keys().hasOnly([
+      'userId',
+      'title',
+      'lastMessage',
+      'messageCount',
+      'createdAt',
+      'updatedAt'
+    ])
+    && request.resource.data.title is string
+    && request.resource.data.title.size() > 0
+    && request.resource.data.title.size() <= 120
+    && request.resource.data.lastMessage is string
+    && request.resource.data.lastMessage.size() <= 500
+    && request.resource.data.messageCount is number
+    && request.resource.data.messageCount >= 0;
+
+  allow update: if chatSessionOwnerRead()
+    && request.resource.data.userId == resource.data.userId
+    && request.resource.data.keys().hasOnly([
+      'userId',
+      'title',
+      'lastMessage',
+      'messageCount',
+      'createdAt',
+      'updatedAt'
+    ])
+    && request.resource.data.title is string
+    && request.resource.data.title.size() > 0
+    && request.resource.data.title.size() <= 120
+    && request.resource.data.lastMessage is string
+    && request.resource.data.lastMessage.size() <= 500
+    && request.resource.data.messageCount is number
+    && request.resource.data.messageCount >= 0;
+
+  allow delete: if chatSessionOwnerRead() || isAdmin();
+}
 /*
  * TRAVEL CHAT MESSAGES
  */
@@ -1935,7 +1994,6 @@ match /travelChatMessages/{messageId} {
 
   allow create: if chatOwnerCreate()
     && request.resource.data.keys().hasOnly([
-      'id',
       'sessionId',
       'userId',
       'content',
@@ -1943,13 +2001,28 @@ match /travelChatMessages/{messageId} {
       'type',
       'suggestionIds',
       'createdAt'
-    ]);
+    ])
+    && request.resource.data.sessionId is string
+    && request.resource.data.sessionId.size() > 0
+    && request.resource.data.content is string
+    && request.resource.data.content.size() > 0
+    && request.resource.data.content.size() <= 6000
+    && request.resource.data.sender in [
+      'user',
+      'ai',
+      'system'
+    ]
+    && request.resource.data.type in [
+      'text',
+      'suggestion',
+      'error'
+    ]
+    && request.resource.data.suggestionIds is list;
 
   allow update: if false;
 
   allow delete: if chatOwnerRead() || isAdmin();
 }
-
 /*
  * TRAVEL SUGGESTIONS
  */

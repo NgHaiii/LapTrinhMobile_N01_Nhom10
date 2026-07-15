@@ -1,55 +1,78 @@
+import 'dart:convert';
 import 'dart:developer' as developer;
-import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 
 import '../model/chat_message.dart';
-import '../model/travel_place.dart';
-import '../model/travel_suggestion.dart';
+import '../model/travel_chat_session.dart';
 
 class AiTravelService {
   AiTravelService({
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
+    http.Client? client,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _auth = auth ?? FirebaseAuth.instance;
+        _auth = auth ?? FirebaseAuth.instance,
+        _client = client ?? http.Client();
+
+  static const String _apiUrl =
+      'https://appdulich-ai-backend.vercel.app/api/travel-ai';
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
+  final http.Client _client;
 
   CollectionReference<Map<String, dynamic>> get _messagesRef {
     return _firestore.collection('travelChatMessages');
   }
 
-  CollectionReference<Map<String, dynamic>> get _suggestionsRef {
-    return _firestore.collection('travelSuggestions');
+  CollectionReference<Map<String, dynamic>> get _sessionsRef {
+    return _firestore.collection('travelChatSessions');
   }
 
   CollectionReference<Map<String, dynamic>> get _placesRef {
     return _firestore.collection('travelPlaces');
   }
 
-  String get currentSessionId {
-    final userId = _auth.currentUser?.uid ?? 'guest';
-    final now = DateTime.now();
-    return '${userId}_${now.year}_${now.month}_${now.day}';
-  }
+  String get currentUserId {
+    final uid = _auth.currentUser?.uid;
 
-  Stream<List<ChatMessageModel>> watchMessages({
-    String? sessionId,
-  }) {
-    final userId = _auth.currentUser?.uid;
-
-    if (userId == null) {
-      return Stream.value(const []);
+    if (uid == null) {
+      throw Exception('Bạn cần đăng nhập để dùng AI du lịch.');
     }
 
-    final effectiveSessionId = sessionId ?? currentSessionId;
+    return uid;
+  }
+
+  Stream<List<TravelChatSessionModel>> watchSessions() {
+    final uid = currentUserId;
+
+    return _sessionsRef
+        .where('userId', isEqualTo: uid)
+        .snapshots()
+        .map((snapshot) {
+      final sessions =
+          snapshot.docs.map(TravelChatSessionModel.fromDoc).toList();
+
+      sessions.sort((a, b) {
+        final aTime = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bTime = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+
+        return bTime.compareTo(aTime);
+      });
+
+      return sessions;
+    });
+  }
+
+  Stream<List<ChatMessageModel>> watchMessages(String sessionId) {
+    final uid = currentUserId;
 
     return _messagesRef
-        .where('userId', isEqualTo: userId)
-        .where('sessionId', isEqualTo: effectiveSessionId)
+        .where('userId', isEqualTo: uid)
+        .where('sessionId', isEqualTo: sessionId)
         .snapshots()
         .map((snapshot) {
       final messages = snapshot.docs.map(ChatMessageModel.fromDoc).toList();
@@ -57,259 +80,312 @@ class AiTravelService {
       messages.sort((a, b) {
         final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
         final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+
         return aTime.compareTo(bTime);
       });
 
       return messages;
-    }).handleError((error, stackTrace) {
+    });
+  }
+
+  String createSessionId() {
+    return _sessionsRef.doc().id;
+  }
+
+  Future<void> deleteSession(String sessionId) async {
+    final uid = currentUserId;
+    final sessionDoc = await _sessionsRef.doc(sessionId).get();
+
+    if (!sessionDoc.exists) return;
+
+    final data = sessionDoc.data() ?? {};
+    if (data['userId'] != uid) {
+      throw Exception('Bạn không có quyền xóa đoạn chat này.');
+    }
+
+    final messages = await _messagesRef
+        .where('userId', isEqualTo: uid)
+        .where('sessionId', isEqualTo: sessionId)
+        .get();
+
+    final batch = _firestore.batch();
+
+    for (final doc in messages.docs) {
+      batch.delete(doc.reference);
+    }
+
+    batch.delete(_sessionsRef.doc(sessionId));
+    await batch.commit();
+  }
+
+  Future<String> ask({
+    required String sessionId,
+    required String message,
+  }) async {
+    final uid = currentUserId;
+    final cleanMessage = message.trim();
+
+    if (cleanMessage.length < 2) {
+      throw Exception('Vui lòng nhập câu hỏi rõ hơn.');
+    }
+
+    try {
+      final history = await _loadRecentHistory(
+        sessionId: sessionId,
+        userId: uid,
+      );
+
+      await _ensureSession(
+        sessionId: sessionId,
+        userId: uid,
+        firstMessage: cleanMessage,
+      );
+
+      await _messagesRef.add({
+        'sessionId': sessionId,
+        'userId': uid,
+        'sender': ChatSender.user.name,
+        'type': ChatMessageType.text.name,
+        'content': cleanMessage,
+        'suggestionIds': <String>[],
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await _updateSessionAfterMessage(
+        sessionId: sessionId,
+        lastMessage: cleanMessage,
+        increment: 1,
+      );
+
+      final places = await _loadTravelPlaces();
+
+      final response = await _client
+          .post(
+            Uri.parse(_apiUrl),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'sessionId': sessionId,
+              'message': cleanMessage,
+              'history': history,
+              'places': places,
+            }),
+          )
+          .timeout(const Duration(seconds: 28));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(_parseError(response.body));
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final answer = data['answer'] as String? ?? '';
+
+      if (answer.trim().isEmpty) {
+        throw Exception('AI chưa trả về nội dung phù hợp.');
+      }
+
+      await _messagesRef.add({
+        'sessionId': sessionId,
+        'userId': uid,
+        'sender': ChatSender.ai.name,
+        'type': ChatMessageType.text.name,
+        'content': answer.trim(),
+        'suggestionIds': <String>[],
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await _updateSessionAfterMessage(
+        sessionId: sessionId,
+        lastMessage: answer.trim(),
+        increment: 1,
+      );
+
+      return answer.trim();
+    } catch (error, stackTrace) {
       developer.log(
-        'watchMessages failed',
+        'AI travel error',
         name: 'AiTravelService',
         error: error,
         stackTrace: stackTrace,
       );
-      throw error;
-    });
+
+      final errorMessage = error.toString().replaceFirst('Exception: ', '');
+
+      await _saveAiError(
+        sessionId: sessionId,
+        userId: uid,
+        message: errorMessage,
+      );
+
+      await _updateSessionAfterMessage(
+        sessionId: sessionId,
+        lastMessage: errorMessage,
+        increment: 1,
+      );
+
+      throw Exception(errorMessage);
+    }
   }
 
-  Stream<List<TravelSuggestionModel>> watchSuggestions({
-    String province = '',
-    TravelSuggestionType? type,
-    int limit = 20,
-  }) {
-    Query<Map<String, dynamic>> query = _suggestionsRef;
-
-    if (province.trim().isNotEmpty) {
-      query = query.where('province', isEqualTo: province.trim());
-    }
-
-    if (type != null) {
-      query = query.where('type', isEqualTo: type.name);
-    }
-
-    query = query.limit(limit);
-
-    return query.snapshots().map((snapshot) {
-      final suggestions =
-          snapshot.docs.map(TravelSuggestionModel.fromDoc).toList();
-
-      suggestions.sort((a, b) => a.title.compareTo(b.title));
-
-      return suggestions;
-    });
-  }
-
-  Future<ChatMessageModel> sendMessage({
-    required String content,
-    String? sessionId,
-  }) async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
-      throw Exception('Bạn cần đăng nhập để dùng trợ lý du lịch.');
-    }
-
-    final question = content.trim();
-
-    if (question.isEmpty) {
-      throw Exception('Vui lòng nhập câu hỏi.');
-    }
-
-    final effectiveSessionId = sessionId ?? currentSessionId;
-
-    final userMessageDoc = _messagesRef.doc();
-    final userMessage = ChatMessageModel.user(
-      sessionId: effectiveSessionId,
-      userId: user.uid,
-      content: question,
-    );
-
-    await userMessageDoc.set(userMessage.toMap());
-
-    final aiResponse = await _buildLocalAiResponse(
-      userId: user.uid,
-      sessionId: effectiveSessionId,
-      question: question,
-    );
-
-    final aiMessageDoc = _messagesRef.doc();
-
-    final aiMessage = ChatMessageModel.ai(
-      sessionId: effectiveSessionId,
-      userId: user.uid,
-      content: aiResponse.content,
-      suggestionIds: aiResponse.suggestionIds,
-    );
-
-    await aiMessageDoc.set(aiMessage.toMap());
-
-    return aiMessage.copyWith(id: aiMessageDoc.id);
-  }
-
-  Future<_AiResponse> _buildLocalAiResponse({
-    required String userId,
+  Future<void> _ensureSession({
     required String sessionId,
-    required String question,
+    required String userId,
+    required String firstMessage,
   }) async {
-    final places = await _loadPlacesForQuestion(question);
+    final doc = _sessionsRef.doc(sessionId);
+    final snapshot = await doc.get();
 
-    if (places.isEmpty) {
-      return const _AiResponse(
-        content:
-            'Mình chưa tìm thấy địa điểm phù hợp trong dữ liệu hiện tại. Bạn có thể thử hỏi theo tỉnh/thành phố, ví dụ: "Gợi ý địa điểm ở Đà Nẵng" hoặc "Đi biển ở đâu đẹp?".',
-      );
-    }
+    if (snapshot.exists) return;
 
-    final selected = places.take(3).toList();
-    final suggestionIds = <String>[];
-
-    for (final place in selected) {
-      final suggestionDoc = _suggestionsRef.doc();
-
-      final suggestion = TravelSuggestionModel(
-        id: suggestionDoc.id,
-        title: place.name,
-        description: place.description.isEmpty
-            ? 'Địa điểm phù hợp với nhu cầu bạn vừa hỏi.'
-            : place.description,
-        type: TravelSuggestionType.place,
-        placeId: place.id,
-        imageUrl: place.primaryImage,
-        province: place.province,
-        district: place.district,
-        estimatedCost: place.ticketPrice,
-        durationText: 'Nửa ngày - 1 ngày',
-        reasons: _buildReasons(place, question),
-        tags: place.tags,
-      );
-
-      await suggestionDoc.set(suggestion.toMap());
-      suggestionIds.add(suggestionDoc.id);
-    }
-
-    final placeLines = selected.map((place) {
-      final location = [
-        place.district,
-        place.province,
-      ].where((item) => item.trim().isNotEmpty).join(', ');
-
-      final locationText = location.isEmpty ? '' : ' - $location';
-      return '• ${place.name}$locationText';
-    }).join('\n');
-
-    return _AiResponse(
-      content:
-          'Mình gợi ý cho bạn một vài địa điểm phù hợp:\n$placeLines\n\nBạn có thể hỏi thêm kiểu: "Lập lịch trình 2 ngày", "Có địa điểm nào gần biển không?", hoặc "Gợi ý nơi đi cùng gia đình".',
-      suggestionIds: suggestionIds,
-    );
+    await doc.set({
+      'userId': userId,
+      'title': _buildSessionTitle(firstMessage),
+      'lastMessage': firstMessage,
+      'messageCount': 0,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  Future<List<TravelPlaceModel>> _loadPlacesForQuestion(String question) async {
-    final normalizedQuestion = _normalize(question);
+  Future<void> _updateSessionAfterMessage({
+    required String sessionId,
+    required String lastMessage,
+    required int increment,
+  }) async {
+    await _sessionsRef.doc(sessionId).set({
+      'lastMessage': _shortText(lastMessage, 140),
+      'messageCount': FieldValue.increment(increment),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
 
-    final snapshot = await _placesRef
-        .where('isActive', isEqualTo: true)
-        .limit(80)
+  Future<List<Map<String, String>>> _loadRecentHistory({
+    required String sessionId,
+    required String userId,
+  }) async {
+    final snapshot = await _messagesRef
+        .where('userId', isEqualTo: userId)
+        .where('sessionId', isEqualTo: sessionId)
         .get();
 
-    final places = snapshot.docs.map(TravelPlaceModel.fromDoc).toList();
+    final docs = snapshot.docs.toList();
 
-    places.sort((a, b) {
-      final scoreCompare =
-          _scorePlace(b, normalizedQuestion).compareTo(_scorePlace(a, normalizedQuestion));
+    docs.sort((a, b) {
+      final aTime = _dateTime(a.data()['createdAt']);
+      final bTime = _dateTime(b.data()['createdAt']);
 
-      if (scoreCompare != 0) return scoreCompare;
-
-      final ratingCompare = b.rating.compareTo(a.rating);
-      if (ratingCompare != 0) return ratingCompare;
-
-      return b.reviewCount.compareTo(a.reviewCount);
+      return aTime.compareTo(bTime);
     });
 
-    return places.where((place) {
-      return _scorePlace(place, normalizedQuestion) > 0 ||
-          normalizedQuestion.contains('gợi ý') ||
-          normalizedQuestion.contains('du lịch') ||
-          normalizedQuestion.contains('địa điểm');
+    return docs
+        .where((doc) {
+          final data = doc.data();
+          final sender = data['sender'] as String? ?? '';
+          final type = data['type'] as String? ?? 'text';
+          final content = data['content'] as String? ?? '';
+
+          return type == ChatMessageType.text.name &&
+              content.trim().isNotEmpty &&
+              (sender == ChatSender.user.name || sender == ChatSender.ai.name);
+        })
+        .map((doc) {
+          final data = doc.data();
+          final sender = data['sender'] as String? ?? ChatSender.user.name;
+          final content = data['content'] as String? ?? '';
+
+          return {
+            'role': sender == ChatSender.ai.name ? 'assistant' : 'user',
+            'content': content.trim(),
+          };
+        })
+        .toList()
+        .reversed
+        .take(10)
+        .toList()
+        .reversed
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadTravelPlaces() async {
+    final snapshot =
+        await _placesRef.where('isActive', isEqualTo: true).limit(20).get();
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+
+      return {
+        'id': doc.id,
+        'name': data['name'] ?? '',
+        'province': data['province'] ?? '',
+        'district': data['district'] ?? '',
+        'address': data['address'] ?? '',
+        'category': data['category'] ?? '',
+        'description': data['description'] ?? '',
+        'ticketPrice': data['ticketPrice'] ?? 0,
+        'rating': data['rating'] ?? 0,
+        'tags': data['tags'] ?? <String>[],
+      };
     }).toList();
   }
 
-  int _scorePlace(TravelPlaceModel place, String question) {
-    final source = _normalize(
-      '${place.name} ${place.description} ${place.province} '
-      '${place.district} ${place.category.label} ${place.tags.join(' ')}',
+  Future<void> _saveAiError({
+    required String sessionId,
+    required String userId,
+    required String message,
+  }) async {
+    await _ensureSession(
+      sessionId: sessionId,
+      userId: userId,
+      firstMessage: 'Đoạn chat du lịch',
     );
 
-    var score = 0;
-
-    for (final token in question.split(RegExp(r'\s+'))) {
-      if (token.length < 2) continue;
-      if (source.contains(token)) score += 2;
-    }
-
-    if (question.contains('biển') &&
-        place.category == TravelPlaceCategory.beach) {
-      score += 8;
-    }
-
-    if ((question.contains('núi') || question.contains('rừng')) &&
-        place.category == TravelPlaceCategory.mountain) {
-      score += 8;
-    }
-
-    if ((question.contains('văn hóa') || question.contains('lịch sử')) &&
-        place.category == TravelPlaceCategory.culture) {
-      score += 8;
-    }
-
-    if ((question.contains('ăn') || question.contains('ẩm thực')) &&
-        place.category == TravelPlaceCategory.food) {
-      score += 8;
-    }
-
-    if (place.isFeatured) score += 2;
-    score += min(place.rating.round(), 5);
-
-    return score;
+    await _messagesRef.add({
+      'sessionId': sessionId,
+      'userId': userId,
+      'sender': ChatSender.ai.name,
+      'type': ChatMessageType.error.name,
+      'content': message,
+      'suggestionIds': <String>[],
+      'createdAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  List<String> _buildReasons(TravelPlaceModel place, String question) {
-    final reasons = <String>[];
+  String _parseError(String body) {
+    try {
+      final data = jsonDecode(body) as Map<String, dynamic>;
 
-    if (place.rating >= 4.5) {
-      reasons.add('Được đánh giá cao');
+      return data['error'] as String? ??
+          data['message'] as String? ??
+          'AI đang tạm thời không phản hồi.';
+    } catch (_) {
+      return 'AI đang tạm thời không phản hồi.';
     }
-
-    if (place.isFeatured) {
-      reasons.add('Địa điểm nổi bật');
-    }
-
-    if (place.category != TravelPlaceCategory.other) {
-      reasons.add('Phù hợp nhóm ${place.category.label}');
-    }
-
-    if (question.contains(_normalize(place.province))) {
-      reasons.add('Đúng khu vực bạn quan tâm');
-    }
-
-    if (reasons.isEmpty) {
-      reasons.add('Phù hợp với câu hỏi của bạn');
-    }
-
-    return reasons;
   }
-}
 
-class _AiResponse {
-  const _AiResponse({
-    required this.content,
-    this.suggestionIds = const [],
-  });
+  String _buildSessionTitle(String message) {
+    final text = _shortText(message, 42);
 
-  final String content;
-  final List<String> suggestionIds;
-}
+    if (text.isEmpty) return 'Đoạn chat du lịch';
 
-String _normalize(String value) {
-  return value.trim().toLowerCase();
+    return text;
+  }
+
+  String _shortText(String value, int maxLength) {
+    final text = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+    if (text.length <= maxLength) return text;
+
+    return '${text.substring(0, maxLength).trim()}...';
+  }
+
+  DateTime _dateTime(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  void dispose() {
+    _client.close();
+  }
 }

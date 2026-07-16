@@ -3,6 +3,7 @@
 import '../../model/hotel.dart';
 import '../../services/customer_service.dart';
 import '../../services/recommendation_service.dart';
+import '../../services/voucher_service.dart';
 import 'account/account_page.dart';
 import 'hotels/hotel_details_screen.dart';
 import 'bookings/my_bookings_screen.dart';
@@ -31,6 +32,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   late final CustomerService _service;
   late final RecommendationService _recommendationService;
   late final Stream<List<HotelModel>> _hotelsStream;
+  late final VoucherService _voucherService;
+  late Stream<int> _newVoucherCountStream;
 
   String _search = '';
   String _category = 'Tất cả';
@@ -52,12 +55,21 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     return _search.trim().isEmpty && _category == 'Tất cả';
   }
 
+  Stream<int> _createNewVoucherCountStream() {
+    return _voucherService.watchNewVoucherCount();
+  }
+
   @override
   void initState() {
     super.initState();
+
     _service = widget.service ?? CustomerService();
     _recommendationService = RecommendationService();
+    _voucherService = VoucherService();
+
     _hotelsStream = _service.watchHotels();
+    _newVoucherCountStream =
+        _createNewVoucherCountStream();
   }
 
   void _openHotel(HotelModel hotel) {
@@ -96,8 +108,23 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
-  void _openPromotions() {
-    Navigator.of(context).push(
+  Future<void> _openPromotions() async {
+    try {
+      await _voucherService.markVouchersAsSeen();
+
+      if (mounted) {
+        setState(() {
+          _newVoucherCountStream =
+              _createNewVoucherCountStream();
+        });
+      }
+    } catch (_) {
+      // Lỗi đánh dấu đã xem không được phép chặn trang Ưu đãi.
+    }
+
+    if (!mounted) return;
+
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => const PromotionsPage(),
       ),
@@ -418,11 +445,22 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   onPromotionTap: _openPromotions,
                 ),
                 const SizedBox(height: 18),
-                _FeatureGrid(
-                  onHotelTap: _scrollToHotelSearch,
-                  onActivityTap: _openTravelActivities,
-                  onPromotionTap: _openPromotions,
-                  onBookingsTap: _openBookings,
+                StreamBuilder<int>(
+                  stream: _newVoucherCountStream,
+                  initialData: 0,
+                  builder: (context, voucherSnapshot) {
+                    final newVoucherCount = voucherSnapshot.hasError
+                        ? 0
+                        : voucherSnapshot.data ?? 0;
+
+                    return _FeatureGrid(
+                      onHotelTap: _scrollToHotelSearch,
+                      onActivityTap: _openTravelActivities,
+                      onPromotionTap: _openPromotions,
+                      onBookingsTap: _openBookings,
+                      newVoucherCount: newVoucherCount,
+                    );
+                  },
                 ),
                 const SizedBox(height: 22),
                 _TravelPlacePreviewSection(
@@ -798,16 +836,19 @@ class _FeatureGrid extends StatelessWidget {
     required this.onActivityTap,
     required this.onPromotionTap,
     required this.onBookingsTap,
+    required this.newVoucherCount,
   });
 
   final VoidCallback onHotelTap;
   final VoidCallback onActivityTap;
   final VoidCallback onPromotionTap;
   final VoidCallback onBookingsTap;
+  final int newVoucherCount;
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 380;
+    final compact =
+        MediaQuery.sizeOf(context).width < 380;
 
     final items = [
       _FeatureItem(
@@ -827,9 +868,12 @@ class _FeatureGrid extends StatelessWidget {
       _FeatureItem(
         icon: Icons.confirmation_number_rounded,
         title: 'Ưu đãi',
-        subtitle: 'Voucher',
+        subtitle: newVoucherCount > 0
+            ? '$newVoucherCount voucher mới'
+            : 'Voucher',
         color: const Color(0xFF7A5AF8),
         onTap: onPromotionTap,
+        badgeCount: newVoucherCount,
       ),
       _FeatureItem(
         icon: Icons.event_note_rounded,
@@ -843,8 +887,10 @@ class _FeatureGrid extends StatelessWidget {
     return GridView.builder(
       itemCount: items.length,
       shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+      physics:
+          const NeverScrollableScrollPhysics(),
+      gridDelegate:
+          SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
@@ -860,35 +906,75 @@ class _FeatureGrid extends StatelessWidget {
             onTap: item.onTap,
             borderRadius: BorderRadius.circular(24),
             child: Container(
-              padding: EdgeInsets.all(compact ? 12 : 14),
+              padding: EdgeInsets.all(
+                compact ? 12 : 14,
+              ),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: const Color(0xFFD7E5E7)),
+                borderRadius:
+                    BorderRadius.circular(24),
+                border: Border.all(
+                  color: const Color(0xFFD7E5E7),
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.045),
+                    color: Colors.black.withValues(
+                      alpha: 0.045,
+                    ),
                     blurRadius: 16,
                     offset: const Offset(0, 8),
                   ),
                 ],
               ),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment:
+                    MainAxisAlignment.center,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    radius: compact ? 20 : 22,
-                    backgroundColor: item.color.withValues(alpha: 0.12),
-                    foregroundColor: item.color,
-                    child: Icon(item.icon, size: compact ? 20 : 22),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CircleAvatar(
+                        radius: compact ? 20 : 22,
+                        backgroundColor:
+                            item.color.withValues(
+                          alpha: 0.12,
+                        ),
+                        foregroundColor: item.color,
+                        child: Icon(
+                          item.icon,
+                          size: compact ? 20 : 22,
+                        ),
+                      ),
+
+                      if (item.badgeCount > 0)
+                        Positioned(
+                          top: -3,
+                          right: -3,
+                          child: Container(
+                            width: 13,
+                            height: 13,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD92D20),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   Text(
                     item.title,
                     maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    overflow:
+                        TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: const Color(0xFF102326),
+                      color:
+                          const Color(0xFF102326),
                       fontWeight: FontWeight.w900,
                       fontSize: compact ? 13 : 14,
                       height: 1.15,
@@ -898,11 +984,17 @@ class _FeatureGrid extends StatelessWidget {
                   Text(
                     item.subtitle,
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    overflow:
+                        TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: const Color(0xFF647A7D),
+                      color: item.badgeCount > 0
+                          ? const Color(0xFFD92D20)
+                          : const Color(0xFF647A7D),
                       fontSize: compact ? 11 : 12,
-                      fontWeight: FontWeight.w600,
+                      fontWeight:
+                          item.badgeCount > 0
+                              ? FontWeight.w800
+                              : FontWeight.w600,
                     ),
                   ),
                 ],
@@ -922,6 +1014,7 @@ class _FeatureItem {
     required this.subtitle,
     required this.color,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
   final IconData icon;
@@ -929,6 +1022,7 @@ class _FeatureItem {
   final String subtitle;
   final Color color;
   final VoidCallback onTap;
+  final int badgeCount;
 }
 
 class _TravelPlacePreviewSection extends StatelessWidget {

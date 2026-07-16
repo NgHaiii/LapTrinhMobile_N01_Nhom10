@@ -16,7 +16,10 @@ class VoucherCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final available = voucher.canUse;
+
+    // canClaim cho phép voucher chưa đến ngày áp dụng
+    // vẫn hiển thị và được nhận/đổi.
+    final claimable = voucher.canClaim;
 
     return InkWell(
       borderRadius: BorderRadius.circular(22),
@@ -26,7 +29,7 @@ class VoucherCard extends StatelessWidget {
           color: colors.surfaceContainerLow,
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
-            color: available
+            color: claimable
                 ? colors.primary.withValues(alpha: 0.35)
                 : colors.outlineVariant,
           ),
@@ -42,15 +45,21 @@ class VoucherCard extends StatelessWidget {
           children: [
             Container(
               width: 86,
-              height: 142,
+              constraints: const BoxConstraints(
+                minHeight: 142,
+              ),
               decoration: BoxDecoration(
-                color: available ? colors.primary : colors.outline,
-                borderRadius: const BorderRadius.horizontal(
+                color: claimable
+                    ? colors.primary
+                    : colors.outline,
+                borderRadius:
+                    const BorderRadius.horizontal(
                   left: Radius.circular(22),
                 ),
               ),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment:
+                    MainAxisAlignment.center,
                 children: [
                   Icon(
                     Icons.local_offer_outlined,
@@ -58,14 +67,19 @@ class VoucherCard extends StatelessWidget {
                     size: 30,
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    _discountText(voucher),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: colors.onPrimary,
-                      fontSize: 15,
-                      height: 1.1,
-                      fontWeight: FontWeight.w900,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                    ),
+                    child: Text(
+                      _discountText(voucher),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: colors.onPrimary,
+                        fontSize: 15,
+                        height: 1.1,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                 ],
@@ -73,29 +87,25 @@ class VoucherCard extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
+                padding: const EdgeInsets.fromLTRB(
+                  14,
+                  13,
+                  12,
+                  13,
+                ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        _TargetBadge(target: voucher.target),
+                        _TargetBadge(
+                          target: voucher.target,
+                        ),
                         const Spacer(),
-                        if (!available)
-                          _StatusBadge(
-                            text: 'Hết hạn',
-                            color: colors.error,
-                          )
-                        else if (voucher.requiredPoints > 0)
-                          _StatusBadge(
-                            text: '${voucher.requiredPoints} điểm',
-                            color: colors.tertiary,
-                          )
-                        else
-                          _StatusBadge(
-                            text: 'Miễn phí',
-                            color: colors.primary,
-                          ),
+                        _VoucherStatusBadge(
+                          voucher: voucher,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 9),
@@ -104,7 +114,9 @@ class VoucherCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: colors.onSurface,
+                        color: claimable
+                            ? colors.onSurface
+                            : colors.onSurfaceVariant,
                         fontSize: 16,
                         height: 1.15,
                         fontWeight: FontWeight.w900,
@@ -128,19 +140,39 @@ class VoucherCard extends StatelessWidget {
                       runSpacing: 7,
                       children: [
                         _MiniInfo(
-                          icon: Icons.confirmation_number_outlined,
+                          icon: Icons
+                              .confirmation_number_outlined,
                           text: voucher.code,
                         ),
                         _MiniInfo(
-                          icon: Icons.shopping_bag_outlined,
-                          text: 'Tối thiểu ${_money(voucher.minOrderAmount)}',
+                          icon:
+                              Icons.shopping_bag_outlined,
+                          text: voucher.minOrderAmount <= 0
+                              ? 'Không yêu cầu đơn tối thiểu'
+                              : 'Tối thiểu '
+                                  '${_money(voucher.minOrderAmount)}',
                         ),
-                       _MiniInfo(
-  icon: Icons.event_outlined,
-  text: voucher.endAt == null
-      ? 'Không giới hạn'
-      : 'Đến ${DateFormat('dd/MM').format(voucher.endAt!)}',
-),
+
+                        // Hiển thị ngày bắt đầu nếu voucher
+                        // chưa đến thời gian áp dụng.
+                        if (voucher.isNotStarted)
+                          _MiniInfo(
+                            icon:
+                                Icons.schedule_outlined,
+                            text: voucher.startAt == null
+                                ? 'Sắp áp dụng'
+                                : 'Dùng từ '
+                                    '${DateFormat('dd/MM').format(voucher.startAt!)}',
+                            color: colors.tertiary,
+                          ),
+
+                        _MiniInfo(
+                          icon: Icons.event_outlined,
+                          text: voucher.endAt == null
+                              ? 'Không giới hạn'
+                              : 'Đến '
+                                  '${DateFormat('dd/MM').format(voucher.endAt!)}',
+                        ),
                       ],
                     ),
                   ],
@@ -153,17 +185,24 @@ class VoucherCard extends StatelessWidget {
     );
   }
 
-  static String _discountText(VoucherModel voucher) {
+  static String _discountText(
+    VoucherModel voucher,
+  ) {
     return switch (voucher.discountType) {
-      VoucherDiscountType.percentage => '-${voucher.discountValue.round()}%',
-      VoucherDiscountType.fixed => '-${_shortMoney(voucher.discountValue)}',
+      VoucherDiscountType.percentage =>
+        '-${voucher.discountValue.round()}%',
+      VoucherDiscountType.fixed =>
+        '-${_shortMoney(voucher.discountValue)}',
     };
   }
 
   static String _shortMoney(num value) {
     if (value >= 1000000) {
       final million = value / 1000000;
-      return '${million.toStringAsFixed(million == million.roundToDouble() ? 0 : 1)}tr';
+      final digits =
+          million == million.roundToDouble() ? 0 : 1;
+
+      return '${million.toStringAsFixed(digits)}tr';
     }
 
     if (value >= 1000) {
@@ -174,7 +213,10 @@ class VoucherCard extends StatelessWidget {
   }
 
   static String _money(num value) {
-    final text = value.round().toString().replaceAllMapped(
+    final text = value
+        .round()
+        .toString()
+        .replaceAllMapped(
           RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
           (match) => '${match[1]}.',
         );
@@ -183,8 +225,58 @@ class VoucherCard extends StatelessWidget {
   }
 }
 
+class _VoucherStatusBadge extends StatelessWidget {
+  const _VoucherStatusBadge({
+    required this.voucher,
+  });
+
+  final VoucherModel voucher;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    if (!voucher.isActive) {
+      return _StatusBadge(
+        text: 'Tạm ngừng',
+        color: colors.outline,
+      );
+    }
+
+    if (voucher.isExpired) {
+      return _StatusBadge(
+        text: 'Hết hạn',
+        color: colors.error,
+      );
+    }
+
+    if (voucher.isOutOfStock) {
+      return _StatusBadge(
+        text: 'Hết lượt',
+        color: colors.error,
+      );
+    }
+
+    // Voucher chưa đến ngày vẫn hiển thị số điểm
+    // vì khách được phép đổi trước.
+    if (voucher.requiredPoints > 0) {
+      return _StatusBadge(
+        text: '${voucher.requiredPoints} điểm',
+        color: colors.tertiary,
+      );
+    }
+
+    return _StatusBadge(
+      text: 'Miễn phí',
+      color: colors.primary,
+    );
+  }
+}
+
 class _TargetBadge extends StatelessWidget {
-  const _TargetBadge({required this.target});
+  const _TargetBadge({
+    required this.target,
+  });
 
   final VoucherTarget target;
 
@@ -194,11 +286,16 @@ class _TargetBadge extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colors.primaryContainer.withValues(alpha: 0.72),
+        color: colors.primaryContainer.withValues(
+          alpha: 0.72,
+        ),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 9,
+          vertical: 5,
+        ),
         child: Text(
           _targetLabel(target),
           style: TextStyle(
@@ -211,7 +308,9 @@ class _TargetBadge extends StatelessWidget {
     );
   }
 
-  static String _targetLabel(VoucherTarget target) {
+  static String _targetLabel(
+    VoucherTarget target,
+  ) {
     return switch (target) {
       VoucherTarget.booking => 'Đặt phòng',
       VoucherTarget.travelActivity => 'Du lịch',
@@ -237,7 +336,10 @@ class _StatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 5,
+        ),
         child: Text(
           text,
           style: TextStyle(
@@ -255,19 +357,27 @@ class _MiniInfo extends StatelessWidget {
   const _MiniInfo({
     required this.icon,
     required this.text,
+    this.color,
   });
 
   final IconData icon;
   final String text;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final foregroundColor =
+        color ?? colors.onSurfaceVariant;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 14, color: colors.primary),
+        Icon(
+          icon,
+          size: 14,
+          color: color ?? colors.primary,
+        ),
         const SizedBox(width: 4),
         Flexible(
           child: Text(
@@ -275,7 +385,7 @@ class _MiniInfo extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: colors.onSurfaceVariant,
+              color: foregroundColor,
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
             ),

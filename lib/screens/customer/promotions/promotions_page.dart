@@ -73,6 +73,27 @@ class _PromotionsPageState extends State<PromotionsPage> {
             ),
           ),
           SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: _QuickAccessCard(
+                onMyVouchers: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MyVouchersPage()),
+                  );
+                },
+                onPoints: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LoyaltyPointsPage(),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
             child: VoucherFilterBar(
               selectedTarget: _selectedTarget,
               onChanged: (value) {
@@ -85,7 +106,8 @@ class _PromotionsPageState extends State<PromotionsPage> {
               target: _selectedTarget,
             ),
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData) {
                 return const SliverFillRemaining(
                   hasScrollBody: false,
                   child: Center(child: CircularProgressIndicator()),
@@ -98,7 +120,7 @@ class _PromotionsPageState extends State<PromotionsPage> {
                   child: _EmptyState(
                     icon: Icons.cloud_off_outlined,
                     title: 'Không thể tải ưu đãi',
-                    message: snapshot.error.toString(),
+                    message: _cleanError(snapshot.error),
                   ),
                 );
               }
@@ -143,6 +165,94 @@ class _PromotionsPageState extends State<PromotionsPage> {
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _QuickAccessCard extends StatelessWidget {
+  const _QuickAccessCard({
+    required this.onMyVouchers,
+    required this.onPoints,
+  });
+
+  final VoidCallback onMyVouchers;
+  final VoidCallback onPoints;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          children: [
+            Expanded(
+              child: _QuickButton(
+                icon: Icons.confirmation_number_outlined,
+                label: 'Voucher của tôi',
+                onTap: onMyVouchers,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickButton(
+                icon: Icons.stars_outlined,
+                label: 'Điểm thưởng',
+                onTap: onPoints,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickButton extends StatelessWidget {
+  const _QuickButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Material(
+      color: colors.primaryContainer.withValues(alpha: 0.5),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 19, color: colors.primary),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -198,4 +308,11 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+String _cleanError(Object? error) {
+  return error
+      .toString()
+      .replaceFirst('Bad state: ', '')
+      .replaceFirst('Exception: ', '');
 }

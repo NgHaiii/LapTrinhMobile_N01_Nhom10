@@ -1,7 +1,9 @@
 ﻿import 'package:flutter/material.dart';
 
+import '../../../model/loyalty_point.dart';
 import '../../../services/auth.dart';
 import '../../../services/customer_service.dart';
+import '../../../services/loyalty_service.dart';
 import '../bookings/my_bookings_screen.dart';
 import '../promotions/loyalty_points_page.dart';
 import '../promotions/my_vouchers_page.dart';
@@ -43,7 +45,16 @@ class CustomerAccountPage extends StatelessWidget {
     );
 
     if (!context.mounted || accepted != true) return;
+
     await AuthService().signOut();
+
+    if (!context.mounted) return;
+
+    // Xóa các trang đã push để màn hình đăng nhập hiện ngay sau đăng xuất.
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).popUntil((route) => route.isFirst);
   }
 
   void _push(BuildContext context, Widget page) {
@@ -290,31 +301,65 @@ class _AccountHero extends StatelessWidget {
   }
 }
 
-class _QuickStats extends StatelessWidget {
+class _QuickStats extends StatefulWidget {
   const _QuickStats();
 
   @override
+  State<_QuickStats> createState() => _QuickStatsState();
+}
+
+class _QuickStatsState extends State<_QuickStats> {
+  late final LoyaltyService _loyaltyService;
+
+  @override
+  void initState() {
+    super.initState();
+    _loyaltyService = LoyaltyService();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const Row(
-      children: [
-        Expanded(
-          child: _StatCard(
-            icon: Icons.workspace_premium_rounded,
-            label: 'Hạng thành viên',
-            value: 'Bronze',
-            color: Color(0xFFE76F51),
-          ),
-        ),
-        SizedBox(width: 10),
-        Expanded(
-          child: _StatCard(
-            icon: Icons.stars_rounded,
-            label: 'Điểm thưởng',
-            value: '0',
-            color: Color(0xFF087F8C),
-          ),
-        ),
-      ],
+    return StreamBuilder<LoyaltyPointModel>(
+      stream: _loyaltyService.watchMyPoints(),
+      builder: (context, snapshot) {
+        final point = snapshot.data;
+        final loading = snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData;
+
+        final tierValue = snapshot.hasError
+            ? '—'
+            : loading
+                ? '...'
+                : point?.tier.label ?? LoyaltyTier.bronze.label;
+
+        final pointValue = snapshot.hasError
+            ? '—'
+            : loading
+                ? '...'
+                : '${point?.availablePoints ?? 0}';
+
+        return Row(
+          children: [
+            Expanded(
+              child: _StatCard(
+                icon: Icons.workspace_premium_rounded,
+                label: 'Hạng thành viên',
+                value: tierValue,
+                color: const Color(0xFFE76F51),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatCard(
+                icon: Icons.stars_rounded,
+                label: 'Điểm thưởng',
+                value: pointValue,
+                color: const Color(0xFF087F8C),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

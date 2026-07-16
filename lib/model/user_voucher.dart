@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum UserVoucherStatus {
   available,
+  reserved,
   used,
   expired;
 
@@ -15,6 +16,7 @@ enum UserVoucherStatus {
   String get label {
     return switch (this) {
       UserVoucherStatus.available => 'Khả dụng',
+      UserVoucherStatus.reserved => 'Đang giữ chỗ',
       UserVoucherStatus.used => 'Đã dùng',
       UserVoucherStatus.expired => 'Hết hạn',
     };
@@ -35,6 +37,7 @@ class UserVoucherModel {
     this.usedAt,
     this.expiredAt,
     this.createdAt,
+    this.updatedAt,
   });
 
   final String id;
@@ -49,6 +52,7 @@ class UserVoucherModel {
   final DateTime? usedAt;
   final DateTime? expiredAt;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   bool get isExpired {
     if (status == UserVoucherStatus.expired) return true;
@@ -59,6 +63,18 @@ class UserVoucherModel {
 
   bool get canUse {
     return status == UserVoucherStatus.available && !isExpired;
+  }
+
+  bool get isReserved {
+    return status == UserVoucherStatus.reserved;
+  }
+
+  bool get isUsed {
+    return status == UserVoucherStatus.used;
+  }
+
+  bool get isUnavailable {
+    return !canUse;
   }
 
   String get statusLabel {
@@ -89,24 +105,26 @@ class UserVoucherModel {
       usedAt: _dateTime(data['usedAt']),
       expiredAt: _dateTime(data['expiredAt']),
       createdAt: _dateTime(data['createdAt']),
+      updatedAt: _dateTime(data['updatedAt']),
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'userId': userId,
-      'voucherId': voucherId,
-      'code': code,
-      'title': title,
+      'userId': userId.trim(),
+      'voucherId': voucherId.trim(),
+      'code': code.trim(),
+      'title': title.trim(),
       'status': isExpired ? UserVoucherStatus.expired.name : status.name,
       'redeemedByPoints': redeemedByPoints,
       'pointsSpent': pointsSpent,
-      'bookingId': bookingId,
-      'usedAt': usedAt == null ? null : Timestamp.fromDate(usedAt!),
-      'expiredAt': expiredAt == null ? null : Timestamp.fromDate(expiredAt!),
+      'bookingId': bookingId.trim(),
+      'usedAt': _timestamp(usedAt),
+      'expiredAt': _timestamp(expiredAt),
       'createdAt': createdAt == null
           ? FieldValue.serverTimestamp()
           : Timestamp.fromDate(createdAt!),
+      'updatedAt': FieldValue.serverTimestamp(),
     };
   }
 
@@ -123,6 +141,7 @@ class UserVoucherModel {
     DateTime? usedAt,
     DateTime? expiredAt,
     DateTime? createdAt,
+    DateTime? updatedAt,
   }) {
     return UserVoucherModel(
       id: id ?? this.id,
@@ -137,6 +156,7 @@ class UserVoucherModel {
       usedAt: usedAt ?? this.usedAt,
       expiredAt: expiredAt ?? this.expiredAt,
       createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -147,5 +167,9 @@ class UserVoucherModel {
     if (value is String) return DateTime.tryParse(value);
 
     return null;
+  }
+
+  static Timestamp? _timestamp(DateTime? value) {
+    return value == null ? null : Timestamp.fromDate(value);
   }
 }

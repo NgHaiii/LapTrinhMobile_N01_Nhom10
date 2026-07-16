@@ -20,12 +20,10 @@ class BookingDetailsScreen extends StatefulWidget {
   final BookingModel booking;
 
   @override
-  State<BookingDetailsScreen> createState() =>
-      _BookingDetailsScreenState();
+  State<BookingDetailsScreen> createState() => _BookingDetailsScreenState();
 }
 
-class _BookingDetailsScreenState
-    extends State<BookingDetailsScreen> {
+class _BookingDetailsScreenState extends State<BookingDetailsScreen> {
   late final ReviewService _reviewService;
   bool _cancelling = false;
 
@@ -45,17 +43,16 @@ class _BookingDetailsScreenState
         title: const Text('Hủy đơn đặt phòng?'),
         content: Text(
           'Bạn có chắc muốn hủy đơn tại "${booking.hotelName}"?\n\n'
-          'Khung giờ sẽ được mở lại cho khách hàng khác.',
+          'Khung giờ sẽ được mở lại cho khách hàng khác. '
+          'Nếu đơn có voucher đang giữ chỗ, voucher sẽ được mở lại.',
         ),
         actions: [
           TextButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Đóng'),
           ),
           FilledButton.icon(
-            onPressed: () =>
-                Navigator.pop(dialogContext, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.cancel_outlined),
             label: const Text('Hủy đơn'),
           ),
@@ -106,29 +103,18 @@ class _BookingDetailsScreenState
 
   Future<void> _openUri(Uri uri) async {
     try {
-      var opened = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
+      var opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
 
       if (!opened) {
-        opened = await launchUrl(
-          uri,
-          mode: LaunchMode.platformDefault,
-        );
+        opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
       }
 
       if (!opened && mounted) {
-        _message(
-          'Không tìm thấy ứng dụng phù hợp để mở liên kết.',
-        );
+        _message('Không tìm thấy ứng dụng phù hợp để mở liên kết.');
       }
     } catch (error) {
       if (!mounted) return;
-
-      _message(
-        'Không thể mở liên kết: ${_cleanError(error)}',
-      );
+      _message('Không thể mở liên kết: ${_cleanError(error)}');
     }
   }
 
@@ -141,24 +127,17 @@ class _BookingDetailsScreenState
     }
 
     await _openUri(
-      Uri.https(
-        'www.google.com',
-        '/maps/dir/',
-        {
-          'api': '1',
-          'destination': destination,
-          'travelmode': 'driving',
-          'dir_action': 'navigate',
-        },
-      ),
+      Uri.https('www.google.com', '/maps/dir/', {
+        'api': '1',
+        'destination': destination,
+        'travelmode': 'driving',
+        'dir_action': 'navigate',
+      }),
     );
   }
 
   Future<void> _openPhone(String phone) async {
-    final value = phone.replaceAll(
-      RegExp(r'[\s.\-()]'),
-      '',
-    );
+    final value = phone.replaceAll(RegExp(r'[\s.\-()]'), '');
 
     if (value.isEmpty) {
       _message('Số điện thoại không hợp lệ.');
@@ -181,8 +160,7 @@ class _BookingDetailsScreenState
         scheme: 'mailto',
         path: value,
         query: _encodeQueryParameters({
-          'subject':
-              'Liên hệ đơn đặt phòng ${_shortBookingCode(booking.id)}',
+          'subject': 'Liên hệ đơn đặt phòng ${_shortBookingCode(booking.id)}',
         }),
       ),
     );
@@ -222,13 +200,10 @@ class _BookingDetailsScreenState
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final overdue =
-        booking.status == BookingStatus.awaitingPayment &&
-        booking.isPaymentOverdue;
+        booking.status == BookingStatus.awaitingPayment && booking.isPaymentOverdue;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Chi tiết đơn đặt phòng'),
-      ),
+      appBar: AppBar(title: const Text('Chi tiết đơn đặt phòng')),
       bottomNavigationBar: _buildActions(),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
@@ -241,12 +216,8 @@ class _BookingDetailsScreenState
                   CircleAvatar(
                     radius: 28,
                     backgroundColor: colors.primaryContainer,
-                    foregroundColor:
-                        colors.onPrimaryContainer,
-                    child: const Icon(
-                      Icons.hotel_outlined,
-                      size: 29,
-                    ),
+                    foregroundColor: colors.onPrimaryContainer,
+                    child: const Icon(Icons.hotel_outlined, size: 29),
                   ),
                   const SizedBox(height: 10),
                   Text(
@@ -259,20 +230,13 @@ class _BookingDetailsScreenState
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${booking.roomType} · '
-                    'Phòng ${booking.roomNumber}',
-                    style: TextStyle(
-                      color: colors.onSurfaceVariant,
-                    ),
+                    '${booking.roomType} · Phòng ${booking.roomNumber}',
+                    style: TextStyle(color: colors.onSurfaceVariant),
                   ),
                   const SizedBox(height: 12),
                   _StatusBadge(
-                    label: overdue
-                        ? 'Đã quá hạn thanh toán'
-                        : booking.statusLabel,
-                    color: overdue
-                        ? colors.error
-                        : _statusColor(booking.status),
+                    label: overdue ? 'Đã quá hạn thanh toán' : booking.statusLabel,
+                    color: overdue ? colors.error : _statusColor(booking.status),
                   ),
                 ],
               ),
@@ -283,22 +247,10 @@ class _BookingDetailsScreenState
             title: 'Thời gian lưu trú',
             icon: Icons.calendar_month_outlined,
             children: [
-              _InfoRow(
-                label: 'Nhận phòng',
-                value: _dateTime(booking.checkIn),
-              ),
-              _InfoRow(
-                label: 'Trả phòng',
-                value: _dateTime(booking.checkOut),
-              ),
-              _InfoRow(
-                label: 'Thời lượng',
-                value: booking.durationLabel,
-              ),
-              _InfoRow(
-                label: 'Số khách',
-                value: '${booking.guests} khách',
-              ),
+              _InfoRow(label: 'Nhận phòng', value: _dateTime(booking.checkIn)),
+              _InfoRow(label: 'Trả phòng', value: _dateTime(booking.checkOut)),
+              _InfoRow(label: 'Thời lượng', value: booking.durationLabel),
+              _InfoRow(label: 'Số khách', value: '${booking.guests} khách'),
             ],
           ),
           const SizedBox(height: 14),
@@ -318,10 +270,7 @@ class _BookingDetailsScreenState
                     : 'Tính giá theo giờ',
               ),
               if (booking.specialRequests.trim().isNotEmpty)
-                _InfoRow(
-                  label: 'Yêu cầu',
-                  value: booking.specialRequests,
-                ),
+                _InfoRow(label: 'Yêu cầu', value: booking.specialRequests),
             ],
           ),
           const SizedBox(height: 14),
@@ -331,9 +280,7 @@ class _BookingDetailsScreenState
             children: [
               _InfoRow(
                 label: 'Trạng thái',
-                value: _paymentStatusLabel(
-                  booking.paymentStatus,
-                ),
+                value: _paymentStatusLabel(booking.paymentStatus),
               ),
               if (booking.paymentReference.isNotEmpty)
                 _InfoRow(
@@ -341,23 +288,29 @@ class _BookingDetailsScreenState
                   value: booking.paymentReference,
                   selectable: true,
                 ),
-              if (booking.status ==
-                      BookingStatus.awaitingPayment &&
+              if (booking.status == BookingStatus.awaitingPayment &&
                   booking.paymentDeadline != null) ...[
                 const SizedBox(height: 6),
-                CustomerPaymentCountdown(
-                  deadline: booking.paymentDeadline!,
-                ),
+                CustomerPaymentCountdown(deadline: booking.paymentDeadline!),
               ],
               const Divider(height: 24),
+              _InfoRow(
+                label: 'Tạm tính',
+                value: _money(booking.effectiveSubtotalAmount),
+              ),
+              if (booking.hasVoucher) ...[
+                _InfoRow(
+                  label: 'Voucher',
+                  value:
+                      '${booking.voucherCode} · -${_money(booking.voucherDiscountAmount)}',
+                ),
+              ],
               Row(
                 children: [
                   const Expanded(
                     child: Text(
                       'Tổng thanh toán',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
                   Text(
@@ -385,9 +338,7 @@ class _BookingDetailsScreenState
         title: 'Vị trí và liên hệ',
         icon: Icons.location_on_outlined,
         children: [
-          Text(
-            'Thông tin sẽ xuất hiện sau khi nhà cung cấp duyệt đơn.',
-          ),
+          Text('Thông tin sẽ xuất hiện sau khi nhà cung cấp duyệt đơn.'),
         ],
       );
     }
@@ -395,15 +346,12 @@ class _BookingDetailsScreenState
     return StreamBuilder<HotelModel?>(
       stream: widget.service.watchHotel(booking.hotelId),
       builder: (context, snapshot) {
-        if (snapshot.connectionState ==
-                ConnectionState.waiting &&
+        if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
           return const _Section(
             title: 'Vị trí và liên hệ',
             icon: Icons.location_on_outlined,
-            children: [
-              Center(child: CircularProgressIndicator()),
-            ],
+            children: [Center(child: CircularProgressIndicator())],
           );
         }
 
@@ -413,11 +361,7 @@ class _BookingDetailsScreenState
           return const _Section(
             title: 'Vị trí và liên hệ',
             icon: Icons.location_on_outlined,
-            children: [
-              Text(
-                'Không thể tải thông tin khách sạn.',
-              ),
-            ],
+            children: [Text('Không thể tải thông tin khách sạn.')],
           );
         }
 
@@ -434,43 +378,36 @@ class _BookingDetailsScreenState
               emphasized: true,
               onPressed: () => _openGoogleMaps(hotel),
             ),
-            if (hotel.hasContactInformation)
-              const Divider(height: 20),
+            if (hotel.hasContactInformation) const Divider(height: 20),
             if (!hotel.hasContactInformation)
-              const Text(
-                'Nhà cung cấp chưa cập nhật thông tin liên hệ.',
-              ),
+              const Text('Nhà cung cấp chưa cập nhật thông tin liên hệ.'),
             if (hotel.contactPhone.isNotEmpty)
               _ContactButton(
                 icon: Icons.phone_outlined,
                 title: 'Gọi điện',
                 subtitle: hotel.contactPhone,
-                onPressed: () =>
-                    _openPhone(hotel.contactPhone),
+                onPressed: () => _openPhone(hotel.contactPhone),
               ),
             if (hotel.contactEmail.isNotEmpty)
               _ContactButton(
                 icon: Icons.email_outlined,
                 title: 'Gửi email',
                 subtitle: hotel.contactEmail,
-                onPressed: () =>
-                    _openEmail(hotel.contactEmail),
+                onPressed: () => _openEmail(hotel.contactEmail),
               ),
             if (hotel.zaloPhone.isNotEmpty)
               _ContactButton(
                 icon: Icons.chat_outlined,
                 title: 'Nhắn tin Zalo',
                 subtitle: hotel.zaloPhone,
-                onPressed: () =>
-                    _openZalo(hotel.zaloPhone),
+                onPressed: () => _openZalo(hotel.zaloPhone),
               ),
             if (hotel.facebookUrl.isNotEmpty)
               _ContactButton(
                 icon: Icons.public_outlined,
                 title: 'Mở Facebook',
                 subtitle: 'Trang Facebook khách sạn',
-                onPressed: () =>
-                    _openFacebook(hotel.facebookUrl),
+                onPressed: () => _openFacebook(hotel.facebookUrl),
               ),
           ],
         );
@@ -479,12 +416,9 @@ class _BookingDetailsScreenState
   }
 
   Widget? _buildActions() {
-    final canReview =
-        booking.status == BookingStatus.completed;
+    final canReview = booking.status == BookingStatus.completed;
 
-    if (!booking.canCustomerPay &&
-        !booking.canCustomerCancel &&
-        !canReview) {
+    if (!booking.canCustomerPay && !booking.canCustomerCancel && !canReview) {
       return null;
     }
 
@@ -492,43 +426,29 @@ class _BookingDetailsScreenState
       child: Material(
         elevation: 8,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            16,
-            10,
-            16,
-            10,
-          ),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
           child: Row(
             children: [
               if (booking.canCustomerCancel)
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed:
-                        _cancelling ? null : _cancel,
+                    onPressed: _cancelling ? null : _cancel,
                     icon: _cancelling
                         ? const SizedBox.square(
                             dimension: 18,
-                            child:
-                                CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(
-                            Icons.cancel_outlined,
-                          ),
+                        : const Icon(Icons.cancel_outlined),
                     label: const Text('Hủy đơn'),
                   ),
                 ),
-              if (booking.canCustomerCancel &&
-                  booking.canCustomerPay)
+              if (booking.canCustomerCancel && booking.canCustomerPay)
                 const SizedBox(width: 10),
               if (booking.canCustomerPay)
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: _openPayment,
-                    icon: const Icon(
-                      Icons.qr_code_2_rounded,
-                    ),
+                    icon: const Icon(Icons.qr_code_2_rounded),
                     label: const Text('Thanh toán'),
                   ),
                 ),
@@ -536,9 +456,7 @@ class _BookingDetailsScreenState
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: _openReview,
-                    icon: const Icon(
-                      Icons.star_outline_rounded,
-                    ),
+                    icon: const Icon(Icons.star_outline_rounded),
                     label: const Text('Đánh giá phòng'),
                   ),
                 ),
@@ -619,24 +537,18 @@ class _InfoRow extends StatelessWidget {
             width: 110,
             child: Text(
               label,
-              style: TextStyle(
-                color: colors.onSurfaceVariant,
-              ),
+              style: TextStyle(color: colors.onSurfaceVariant),
             ),
           ),
           Expanded(
             child: selectable
                 ? SelectableText(
                     value,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   )
                 : Text(
                     value,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
           ),
         ],
@@ -670,18 +582,11 @@ class _ContactButton extends StatelessWidget {
           : Colors.transparent,
       borderRadius: BorderRadius.circular(8),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 2,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         onTap: onPressed,
         leading: CircleAvatar(
-          backgroundColor: emphasized
-              ? colors.primary
-              : colors.secondaryContainer,
+          backgroundColor: emphasized ? colors.primary : colors.secondaryContainer,
           foregroundColor: emphasized
               ? colors.onPrimary
               : colors.onSecondaryContainer,
@@ -689,9 +594,7 @@ class _ContactButton extends StatelessWidget {
         ),
         title: Text(
           title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w800),
         ),
         subtitle: Text(
           subtitle,
@@ -699,9 +602,7 @@ class _ContactButton extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
         trailing: Icon(
-          emphasized
-              ? Icons.navigation_outlined
-              : Icons.open_in_new_rounded,
+          emphasized ? Icons.navigation_outlined : Icons.open_in_new_rounded,
         ),
       ),
     );
@@ -725,16 +626,10 @@ class _StatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(7),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 7,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         child: Text(
           label,
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.w900,
-          ),
+          style: TextStyle(color: color, fontWeight: FontWeight.w900),
         ),
       ),
     );
@@ -757,8 +652,7 @@ Color _statusColor(String status) {
     BookingStatus.confirmed => Colors.green,
     BookingStatus.completed => Colors.teal,
     BookingStatus.cancelled => Colors.grey,
-    BookingStatus.rejected ||
-    BookingStatus.expired => Colors.red,
+    BookingStatus.rejected || BookingStatus.expired => Colors.red,
     _ => Colors.orange,
   };
 }
@@ -767,8 +661,7 @@ String _paymentStatusLabel(String status) {
   return switch (status) {
     PaymentStatus.submitted => 'Đã gửi xác nhận',
     PaymentStatus.paid => 'Đã thanh toán',
-    PaymentStatus.rejected =>
-      'Thanh toán bị từ chối',
+    PaymentStatus.rejected => 'Thanh toán bị từ chối',
     PaymentStatus.expired => 'Đã quá hạn',
     _ => 'Chưa thanh toán',
   };
@@ -804,19 +697,13 @@ String _shortBookingCode(String id) {
     hash = (hash * 16777619) & 0x7fffffff;
   }
 
-  return (hash % 100000000)
-      .toString()
-      .padLeft(8, '0');
+  return (hash % 100000000).toString().padLeft(8, '0');
 }
 
 String _zaloNumber(String value) {
-  var number = value.replaceAll(
-    RegExp(r'[^0-9]'),
-    '',
-  );
+  var number = value.replaceAll(RegExp(r'[^0-9]'), '');
 
-  if (number.startsWith('84') &&
-      number.length == 11) {
+  if (number.startsWith('84') && number.length == 11) {
     number = '0${number.substring(2)}';
   }
 
@@ -826,17 +713,14 @@ String _zaloNumber(String value) {
 String _normalizeUrl(String value) {
   final url = value.trim();
 
-  if (url.startsWith('http://') ||
-      url.startsWith('https://')) {
+  if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;
   }
 
   return 'https://$url';
 }
 
-String _encodeQueryParameters(
-  Map<String, String> parameters,
-) {
+String _encodeQueryParameters(Map<String, String> parameters) {
   return parameters.entries.map((entry) {
     return '${Uri.encodeComponent(entry.key)}='
         '${Uri.encodeComponent(entry.value)}';
@@ -849,8 +733,7 @@ String _dateTime(DateTime value) {
   final hour = value.hour.toString().padLeft(2, '0');
   final minute = value.minute.toString().padLeft(2, '0');
 
-  return '$hour:$minute · '
-      '$day/$month/${value.year}';
+  return '$hour:$minute · $day/$month/${value.year}';
 }
 
 String _money(double value) {

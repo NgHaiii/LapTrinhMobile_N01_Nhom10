@@ -129,92 +129,192 @@ service cloud.firestore {
     }
 
     /*
-     * USERS
-     */
-    match /users/{userId} {
-      function ownerProfileUpdate() {
-        let changed = request.resource.data
-          .diff(resource.data)
-          .affectedKeys();
+ * USERS
+ */
+match /users/{userId} {
+  /*
+   * Cập nhật thông tin hồ sơ thông thường.
+   */
+  function ownerProfileUpdate() {
+    let changed = request.resource.data
+      .diff(resource.data)
+      .affectedKeys();
 
-        return activeUser()
-          && request.auth.uid == userId
-          && request.resource.data.uid
-            == resource.data.uid
-          && request.resource.data.role
-            == resource.data.role
-          && request.resource.data.providerStatus
-            == resource.data.providerStatus
-          && changed.hasOnly([
-            'fullName',
-            'phoneNumber',
-            'profilePic',
-            'updatedAt'
-          ]);
-      }
+    return activeUser()
+      && request.auth.uid == userId
+      && request.resource.data.uid
+        == resource.data.uid
+      && request.resource.data.role
+        == resource.data.role
+      && request.resource.data.providerStatus
+        == resource.data.providerStatus
+      && changed.hasOnly([
+        'fullName',
+        'phoneNumber',
+        'profilePic',
+        'updatedAt'
+      ]);
+  }
 
-      function submitProviderApplication() {
-        let applicationPath = /databases/$(database)
-          /documents/providerApplications/$(userId);
-
-        let changed = request.resource.data
-          .diff(resource.data)
-          .affectedKeys();
-
-        return activeUser()
-          && request.auth.uid == userId
-          && resource.data.role == 'customer'
-          && request.resource.data.role == 'customer'
-          && request.resource.data.providerStatus
-            == 'pending'
-          && changed.hasOnly([
-            'providerStatus',
-            'updatedAt'
-          ])
-          && existsAfter(applicationPath)
-          && getAfter(applicationPath).data.userId
-            == userId
-          && getAfter(applicationPath).data.status
-            == 'pending';
-      }
-
-      allow read: if activeUser()
-        && (
-          request.auth.uid == userId
-          || isAdmin()
-        );
-
-      allow create: if signedIn()
-        && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly([
-          'uid',
-          'email',
-          'fullName',
-          'phoneNumber',
-          'role',
-          'providerStatus',
-          'profilePic',
-          'isActive',
-          'createdAt',
-          'updatedAt'
+  /*
+   * Kiểm tra cấu hình thông báo do khách cập nhật.
+   */
+  function validNotificationSettings(changed) {
+    return !changed.hasAny([
+      'notificationSettings'
+    ])
+    || (
+      request.resource.data.notificationSettings
+        is map
+      && request.resource.data
+        .notificationSettings
+        .keys()
+        .hasOnly([
+          'bookingUpdates',
+          'promotions',
+          'travelSuggestions'
         ])
-        && request.resource.data.uid == userId
-        && request.resource.data.role == 'customer'
-        && request.resource.data.providerStatus == 'none'
-        && request.resource.data.email is string
-        && request.resource.data.email.size() > 3
-        && request.resource.data.fullName is string
-        && (
-          !('isActive' in request.resource.data)
-          || request.resource.data.isActive == true
-        );
+      && request.resource.data
+        .notificationSettings
+        .bookingUpdates is bool
+      && request.resource.data
+        .notificationSettings
+        .promotions is bool
+      && request.resource.data
+        .notificationSettings
+        .travelSuggestions is bool
+    );
+  }
 
-      allow update: if isAdmin()
-        || ownerProfileUpdate()
-        || submitProviderApplication();
+  /*
+   * Kiểm tra thời điểm khách xem voucher.
+   *
+   * lastSeenVoucherAt bắt buộc là server timestamp,
+   * không cho khách tự nhập một thời điểm tùy ý.
+   */
+  function validLastSeenVoucherAt(changed) {
+    return !changed.hasAny([
+      'lastSeenVoucherAt'
+    ])
+    || (
+      request.resource.data.lastSeenVoucherAt
+        is timestamp
+      && request.resource.data.lastSeenVoucherAt
+        == request.time
+    );
+  }
 
-      allow delete: if isAdmin();
-    }
+  /*
+   * Khách được cập nhật:
+   * - Cài đặt thông báo của chính mình.
+   * - Thời điểm đã xem voucher.
+   *
+   * Không được thay đổi role, trạng thái tài khoản
+   * hoặc thông tin phân quyền.
+   */
+  function ownerNotificationUpdate() {
+    let changed = request.resource.data
+      .diff(resource.data)
+      .affectedKeys();
+
+    return activeUser()
+      && request.auth.uid == userId
+      && changed.hasOnly([
+        'notificationSettings',
+        'lastSeenVoucherAt',
+        'updatedAt'
+      ])
+      && request.resource.data.updatedAt
+        is timestamp
+      && request.resource.data.updatedAt
+        == request.time
+      && validNotificationSettings(changed)
+      && validLastSeenVoucherAt(changed);
+  }
+
+  /*
+   * Khách gửi yêu cầu đăng ký nhà cung cấp.
+   */
+  function submitProviderApplication() {
+    let applicationPath = /databases/$(database)
+      /documents/providerApplications/$(userId);
+
+    let changed = request.resource.data
+      .diff(resource.data)
+      .affectedKeys();
+
+    return activeUser()
+      && request.auth.uid == userId
+      && resource.data.role == 'customer'
+      && request.resource.data.role == 'customer'
+      && request.resource.data.providerStatus
+        == 'pending'
+      && changed.hasOnly([
+        'providerStatus',
+        'updatedAt'
+      ])
+      && existsAfter(applicationPath)
+      && getAfter(applicationPath).data.userId
+        == userId
+      && getAfter(applicationPath).data.status
+        == 'pending';
+  }
+
+  /*
+   * Khách chỉ đọc tài khoản của chính mình.
+   * Admin được đọc tất cả.
+   */
+  allow read: if activeUser()
+    && (
+      request.auth.uid == userId
+      || isAdmin()
+    );
+
+  /*
+   * Tạo tài khoản mới.
+   */
+  allow create: if signedIn()
+    && request.auth.uid == userId
+    && request.resource.data.keys().hasOnly([
+      'uid',
+      'email',
+      'fullName',
+      'phoneNumber',
+      'role',
+      'providerStatus',
+      'profilePic',
+      'isActive',
+      'createdAt',
+      'updatedAt'
+    ])
+    && request.resource.data.uid == userId
+    && request.resource.data.role == 'customer'
+    && request.resource.data.providerStatus
+      == 'none'
+    && request.resource.data.email is string
+    && request.resource.data.email.size() > 3
+    && request.resource.data.fullName is string
+    && (
+      !('isActive' in request.resource.data)
+      || request.resource.data.isActive == true
+    );
+
+  /*
+   * Admin được cập nhật mọi tài khoản.
+   *
+   * Khách chỉ được:
+   * - Sửa hồ sơ.
+   * - Sửa cài đặt thông báo.
+   * - Đánh dấu đã xem voucher.
+   * - Gửi yêu cầu làm nhà cung cấp.
+   */
+  allow update: if isAdmin()
+    || ownerProfileUpdate()
+    || ownerNotificationUpdate()
+    || submitProviderApplication();
+
+  allow delete: if isAdmin();
+}
 
     /*
      * PROVIDER APPLICATIONS
@@ -765,6 +865,20 @@ service cloud.firestore {
             == 'cancelled'
           && schedulesHaveState(false);
 
+
+        let awardLoyalty =
+  resource.data.status == 'completed'
+  && resource.data.paymentStatus == 'paid'
+  && (
+    !('loyaltyPointsAwarded' in resource.data)
+    || resource.data.loyaltyPointsAwarded == 0
+  )
+  && request.resource.data.status == resource.data.status
+  && request.resource.data.paymentStatus == resource.data.paymentStatus
+  && request.resource.data.loyaltyPointsAwarded is int
+  && request.resource.data.loyaltyPointsAwarded >= 0
+  && request.resource.data.loyaltyPointsAwardedAt is timestamp;
+
         return isProvider()
           && resource.data.providerId
             == request.auth.uid
@@ -779,7 +893,7 @@ service cloud.firestore {
           && validBookingStatus(
             request.resource.data.status
           )
-          && validPaymentStatus(
+                    && validPaymentStatus(
             request.resource.data.paymentStatus
           )
           && changed.hasOnly([
@@ -791,6 +905,8 @@ service cloud.firestore {
             'receiverBankName',
             'receiverAccountNumber',
             'receiverAccountName',
+            'loyaltyPointsAwarded',
+            'loyaltyPointsAwardedAt',
             'updatedAt'
           ])
           && (
@@ -800,6 +916,7 @@ service cloud.firestore {
             || rejectPayment
             || complete
             || cancel
+            || awardLoyalty
           );
       }
 
@@ -1821,26 +1938,58 @@ match /savedPlaces/{savedPlaceId} {
 }
 /*
  * VOUCHERS
- * Admin tạo voucher. Khách chỉ đọc và được tăng usedCount khi đổi/lưu voucher.
+ * Admin tạo/sửa/xóa voucher. Khách đăng nhập được đọc voucher đang bật.
  */
 match /vouchers/{voucherId} {
-  function activeVoucher() {
-    return resource.data.isActive == true
-      && (
-        !('startAt' in resource.data)
-        || resource.data.startAt == null
-        || resource.data.startAt <= request.time
-      )
-      && (
-        !('endAt' in resource.data)
-        || resource.data.endAt == null
-        || resource.data.endAt >= request.time
-      )
-      && (
-        !('quantity' in resource.data)
-        || resource.data.quantity <= 0
-        || resource.data.usedCount < resource.data.quantity
-      );
+  function validVoucherTarget(target) {
+    return target in [
+      'all',
+      'booking',
+      'travelActivity'
+    ];
+  }
+
+  function validDiscountType(type) {
+    return type in [
+      'percent',
+      'fixedAmount'
+    ];
+  }
+
+  function customerCanReadVoucher() {
+    return activeUser()
+      && resource.data.isActive == true;
+  }
+
+  function validAdminVoucherData() {
+    return request.resource.data.code is string
+      && request.resource.data.code.size() >= 2
+      && request.resource.data.code.size() <= 40
+      && request.resource.data.title is string
+      && request.resource.data.title.size() >= 2
+      && request.resource.data.title.size() <= 160
+      && request.resource.data.description is string
+      && request.resource.data.description.size() <= 2000
+      && validDiscountType(request.resource.data.discountType)
+      && request.resource.data.discountValue is number
+      && request.resource.data.discountValue > 0
+      && request.resource.data.maxDiscountAmount is number
+      && request.resource.data.maxDiscountAmount >= 0
+      && request.resource.data.minOrderAmount is number
+      && request.resource.data.minOrderAmount >= 0
+      && request.resource.data.pointsRequired is int
+      && request.resource.data.pointsRequired >= 0
+      && request.resource.data.quantity is int
+      && request.resource.data.quantity >= 0
+      && request.resource.data.usedCount is int
+      && request.resource.data.usedCount >= 0
+      && validVoucherTarget(request.resource.data.target)
+      && request.resource.data.terms is string
+      && request.resource.data.terms.size() <= 3000
+      && request.resource.data.isActive is bool
+      && request.resource.data.startAt is timestamp
+      && request.resource.data.endAt is timestamp
+      && request.resource.data.endAt >= request.resource.data.startAt;
   }
 
   function userIncrementsUsedCountOnly() {
@@ -1849,27 +1998,68 @@ match /vouchers/{voucherId} {
       .affectedKeys();
 
     return activeUser()
-      && activeVoucher()
+      && resource.data.isActive == true
       && changed.hasOnly([
         'usedCount',
         'updatedAt'
       ])
-      && request.resource.data.usedCount == resource.data.usedCount + 1
-      && request.resource.data.updatedAt is timestamp;
+      && request.resource.data.usedCount is int
+      && request.resource.data.usedCount >= 1
+      && (
+        !('usedCount' in resource.data)
+        || request.resource.data.usedCount == resource.data.usedCount + 1
+      )
+      && (
+        !('quantity' in resource.data)
+        || resource.data.quantity <= 0
+        || request.resource.data.usedCount <= resource.data.quantity
+      );
   }
 
-  allow read: if activeUser();
+  allow read: if isAdmin() || customerCanReadVoucher();
 
-  allow create, delete: if isAdmin();
+  allow create: if isAdmin()
+    && request.resource.data.keys().hasOnly([
+      'code',
+      'title',
+      'description',
+      'discountType',
+      'discountValue',
+      'maxDiscountAmount',
+      'minOrderAmount',
+      'pointsRequired',
+      'quantity',
+      'usedCount',
+      'target',
+      'terms',
+      'isActive',
+      'startAt',
+      'endAt',
+      'createdBy',
+      'createdAt',
+      'updatedAt'
+    ])
+    && request.resource.data.createdBy == request.auth.uid
+    && validAdminVoucherData();
 
-  allow update: if isAdmin()
+  allow update: if (
+      isAdmin()
+      && request.resource.data.keys().hasOnly(resource.data.keys())
+      && validAdminVoucherData()
+    )
     || userIncrementsUsedCountOnly();
-}
 
+  allow delete: if isAdmin();
+}
 /*
  * USER VOUCHERS
  */
 match /userVouchers/{userVoucherId} {
+  function userVoucherDocPath() {
+    return /databases/$(database)
+      /documents/userVouchers/$(userVoucherId);
+  }
+
   function userVoucherOwnerCreate() {
     return activeUser()
       && request.resource.data.userId == request.auth.uid;
@@ -1883,12 +2073,50 @@ match /userVouchers/{userVoucherId} {
   function validUserVoucherStatus(status) {
     return status in [
       'available',
+      'reserved',
       'used',
       'expired'
     ];
   }
 
-  allow read: if userVoucherOwnerRead() || isAdmin();
+  function validUserVoucherCreateData() {
+    return request.resource.data.userId is string
+      && request.resource.data.userId == request.auth.uid
+      && request.resource.data.voucherId is string
+      && request.resource.data.voucherId.size() > 0
+      && request.resource.data.code is string
+      && request.resource.data.code.size() > 0
+      && request.resource.data.title is string
+      && request.resource.data.title.size() > 0
+      && request.resource.data.status == 'available'
+      && request.resource.data.redeemedByPoints is bool
+      && request.resource.data.pointsSpent is int
+      && request.resource.data.pointsSpent >= 0
+      && request.resource.data.bookingId is string;
+  }
+
+  function validUserVoucherOwnerUpdate() {
+    return request.resource.data.userId == resource.data.userId
+      && request.resource.data.voucherId == resource.data.voucherId
+      && request.resource.data.code == resource.data.code
+      && request.resource.data.title == resource.data.title
+      && request.resource.data.redeemedByPoints == resource.data.redeemedByPoints
+      && request.resource.data.pointsSpent == resource.data.pointsSpent
+      && validUserVoucherStatus(request.resource.data.status);
+  }
+
+  allow get: if activeUser()
+    && (
+      isAdmin()
+      || !exists(userVoucherDocPath())
+      || resource.data.userId == request.auth.uid
+    );
+
+  allow list: if activeUser()
+    && (
+      isAdmin()
+      || resource.data.userId == request.auth.uid
+    );
 
   allow create: if userVoucherOwnerCreate()
     && request.resource.data.keys().hasOnly([
@@ -1902,19 +2130,31 @@ match /userVouchers/{userVoucherId} {
       'bookingId',
       'usedAt',
       'expiredAt',
-      'createdAt'
+      'createdAt',
+      'updatedAt'
     ])
-    && validUserVoucherStatus(request.resource.data.status)
-    && request.resource.data.status == 'available'
-    && request.resource.data.voucherId is string
-    && request.resource.data.voucherId.size() > 0
-    && request.resource.data.code is string
-    && request.resource.data.title is string;
+    && validUserVoucherCreateData();
 
-  allow update: if userVoucherOwnerRead()
-    && request.resource.data.userId == resource.data.userId
-    && request.resource.data.voucherId == resource.data.voucherId
-    && validUserVoucherStatus(request.resource.data.status);
+  allow update: if (
+      userVoucherOwnerRead()
+      && request.resource.data.userId == resource.data.userId
+      && request.resource.data.keys().hasOnly([
+        'userId',
+        'voucherId',
+        'code',
+        'title',
+        'status',
+        'redeemedByPoints',
+        'pointsSpent',
+        'bookingId',
+        'usedAt',
+        'expiredAt',
+        'createdAt',
+        'updatedAt'
+      ])
+      && validUserVoucherOwnerUpdate()
+    )
+    || isAdmin();
 
   allow delete: if isAdmin();
 }
@@ -1923,21 +2163,36 @@ match /userVouchers/{userVoucherId} {
  * LOYALTY POINTS
  */
 match /loyaltyPoints/{userId} {
+  function providerCanAwardPoints() {
+    return isProvider()
+      && request.resource.data.userId == userId;
+  }
+
   allow read: if activeUser()
     && (
       request.auth.uid == userId
+      || isProvider()
       || isAdmin()
     );
 
-  allow create, update: if activeUser()
-    && (
-      request.auth.uid == userId
-      || isAdmin()
-    );
+  allow create: if (
+      activeUser()
+      && request.auth.uid == userId
+      && request.resource.data.userId == request.auth.uid
+    )
+    || providerCanAwardPoints()
+    || isAdmin();
+
+  allow update: if (
+      activeUser()
+      && request.auth.uid == userId
+      && request.resource.data.userId == userId
+    )
+    || providerCanAwardPoints()
+    || isAdmin();
 
   allow delete: if isAdmin();
 }
-
 /*
  * POINT TRANSACTIONS
  */
@@ -1952,10 +2207,36 @@ match /pointTransactions/{transactionId} {
       && resource.data.userId == request.auth.uid;
   }
 
+  function providerCreatesEarnTransaction() {
+    return isProvider()
+      && request.resource.data.type == 'earn'
+      && request.resource.data.source == 'booking'
+      && request.resource.data.points is int
+      && request.resource.data.points > 0
+      && request.resource.data.referenceId is string;
+  }
+
+  function validPointTransactionType(type) {
+    return type in [
+      'earn',
+      'redeem',
+      'spend',
+      'refund',
+      'adjust',
+      'adjustment'
+    ];
+  }
+
   allow read: if pointTransactionOwnerRead() || isAdmin();
 
-  allow create: if pointTransactionOwnerCreate()
-    || isAdmin();
+  allow create: if (
+      pointTransactionOwnerCreate()
+      || providerCreatesEarnTransaction()
+      || isAdmin()
+    )
+    && request.resource.data.userId is string
+    && request.resource.data.points is int
+    && validPointTransactionType(request.resource.data.type);
 
   allow update, delete: if isAdmin();
 }
@@ -1973,14 +2254,7 @@ match /travelChatSessions/{sessionId} {
       && resource.data.userId == request.auth.uid;
   }
 
-  allow get: if activeUser()
-    && (
-      !exists(/databases/$(database)/documents/travelChatSessions/$(sessionId))
-      || resource.data.userId == request.auth.uid
-      || isAdmin()
-    );
-
-  allow list: if chatSessionOwnerRead() || isAdmin();
+  allow read: if chatSessionOwnerRead() || isAdmin();
 
   allow create: if chatSessionOwnerCreate()
     && request.resource.data.keys().hasOnly([
@@ -2033,6 +2307,26 @@ match /travelChatMessages/{messageId} {
       && resource.data.userId == request.auth.uid;
   }
 
+  function validChatSender() {
+    return (
+      'sender' in request.resource.data
+      && request.resource.data.sender in [
+        'user',
+        'ai',
+        'assistant',
+        'system'
+      ]
+    )
+    || (
+      'role' in request.resource.data
+      && request.resource.data.role in [
+        'user',
+        'assistant',
+        'system'
+      ]
+    );
+  }
+
   allow read: if chatOwnerRead() || isAdmin();
 
   allow create: if chatOwnerCreate()
@@ -2041,6 +2335,7 @@ match /travelChatMessages/{messageId} {
       'userId',
       'content',
       'sender',
+      'role',
       'type',
       'suggestionIds',
       'createdAt'
@@ -2050,17 +2345,19 @@ match /travelChatMessages/{messageId} {
     && request.resource.data.content is string
     && request.resource.data.content.size() > 0
     && request.resource.data.content.size() <= 6000
-    && request.resource.data.sender in [
-      'user',
-      'ai',
-      'system'
-    ]
-    && request.resource.data.type in [
-      'text',
-      'suggestion',
-      'error'
-    ]
-    && request.resource.data.suggestionIds is list;
+    && validChatSender()
+    && (
+      !('type' in request.resource.data)
+      || request.resource.data.type in [
+        'text',
+        'suggestion',
+        'error'
+      ]
+    )
+    && (
+      !('suggestionIds' in request.resource.data)
+      || request.resource.data.suggestionIds is list
+    );
 
   allow update: if false;
 

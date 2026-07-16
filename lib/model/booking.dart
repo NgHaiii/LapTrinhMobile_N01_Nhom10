@@ -98,6 +98,12 @@ class BookingModel {
     this.weekendSurchargePercent = 0,
     this.holidaySurchargePercent = 0,
     this.calendarSurchargeAmount = 0,
+    this.subtotalAmount = 0,
+    this.voucherId = '',
+    this.userVoucherId = '',
+    this.voucherCode = '',
+    this.voucherTitle = '',
+    this.voucherDiscountAmount = 0,
     this.paymentMethod = PaymentMethod.vietQr,
     this.paymentStatus = PaymentStatus.unpaid,
     this.paymentReference = '',
@@ -113,6 +119,8 @@ class BookingModel {
     this.commissionApplied = false,
     this.commissionInvoiceId,
     this.commissionSettledAt,
+    this.loyaltyPointsAwarded = 0,
+    this.loyaltyPointsAwardedAt,
     this.createdAt,
     this.updatedAt,
   });
@@ -152,7 +160,18 @@ class BookingModel {
   final double calendarSurchargeAmount;
 
   final Map<String, double> pricingBreakdown;
+
+  /// Tổng tiền trước khi áp voucher.
+  final double subtotalAmount;
+
+  /// Tổng tiền khách phải thanh toán sau khi trừ voucher.
   final double totalAmount;
+
+  final String voucherId;
+  final String userVoucherId;
+  final String voucherCode;
+  final String voucherTitle;
+  final double voucherDiscountAmount;
 
   final String status;
   final String paymentMethod;
@@ -175,10 +194,39 @@ class BookingModel {
   final String? commissionInvoiceId;
   final DateTime? commissionSettledAt;
 
+  final int loyaltyPointsAwarded;
+  final DateTime? loyaltyPointsAwardedAt;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
   bool get usesCombo => ratePlanId.isNotEmpty;
+
+  bool get hasVoucher {
+    return userVoucherId.trim().isNotEmpty &&
+        voucherDiscountAmount > 0;
+  }
+
+  bool get hasAwardedLoyaltyPoints {
+  return loyaltyPointsAwarded > 0 && loyaltyPointsAwardedAt != null;
+}
+
+bool get eligibleForLoyaltyPoints {
+  return status == BookingStatus.completed &&
+      paymentStatus == PaymentStatus.paid &&
+      !hasAwardedLoyaltyPoints &&
+      customerId.trim().isNotEmpty &&
+      payableAmount > 0;
+}
+
+  double get effectiveSubtotalAmount {
+    if (subtotalAmount > 0) return subtotalAmount;
+    return totalAmount + voucherDiscountAmount;
+  }
+
+  double get payableAmount {
+    return totalAmount < 0 ? 0 : totalAmount;
+  }
 
   bool get canCustomerCancel {
     return status == BookingStatus.pending ||
@@ -255,7 +303,7 @@ class BookingModel {
 
   double get effectiveCommissionAmount {
     if (commissionAmount > 0) return commissionAmount;
-    return totalAmount * effectiveCommissionRate;
+    return payableAmount * effectiveCommissionRate;
   }
 
   String get durationLabel {
@@ -291,8 +339,7 @@ class BookingModel {
     Map<String, dynamic> data,
     String id,
   ) {
-    final checkIn =
-        _asDateTime(data['checkIn']) ?? DateTime.now();
+    final checkIn = _asDateTime(data['checkIn']) ?? DateTime.now();
 
     final checkOut = _asDateTime(data['checkOut']) ??
         checkIn.add(const Duration(hours: 1));
@@ -304,7 +351,13 @@ class BookingModel {
       fallback: pricePerNight > 0 ? pricePerNight / 24 : 0,
     );
 
-    final grossAmount = _asDouble(data['totalAmount']);
+    final totalAmount = _asDouble(data['totalAmount']);
+    final voucherDiscountAmount = _asDouble(data['voucherDiscountAmount']);
+    final subtotalAmount = _asDouble(
+      data['subtotalAmount'] ?? data['pricingSubtotal'],
+      fallback: totalAmount + voucherDiscountAmount,
+    );
+
     final commissionRate = _normalizeRate(
       _asDouble(
         data['commissionRate'],
@@ -368,7 +421,13 @@ class BookingModel {
       pricingBreakdown: _readDoubleMap(
         data['pricingBreakdown'],
       ),
-      totalAmount: grossAmount,
+      subtotalAmount: subtotalAmount,
+      totalAmount: totalAmount,
+      voucherId: _asString(data['voucherId']),
+      userVoucherId: _asString(data['userVoucherId']),
+      voucherCode: _asString(data['voucherCode']),
+      voucherTitle: _asString(data['voucherTitle']),
+      voucherDiscountAmount: voucherDiscountAmount,
       status: BookingStatus.normalize(data['status']),
       paymentMethod: _asString(
         data['paymentMethod'],
@@ -396,7 +455,7 @@ class BookingModel {
       commissionRate: commissionRate,
       commissionAmount: _asDouble(
         data['commissionAmount'],
-        fallback: grossAmount * commissionRate,
+        fallback: totalAmount * commissionRate,
       ),
       commissionApplied: data['commissionApplied'] == true,
       commissionInvoiceId: _nullableString(
@@ -404,6 +463,10 @@ class BookingModel {
       ),
       commissionSettledAt: _asDateTime(
         data['commissionSettledAt'],
+      ),
+      loyaltyPointsAwarded: _asInt(data['loyaltyPointsAwarded']),
+      loyaltyPointsAwardedAt: _asDateTime(
+        data['loyaltyPointsAwardedAt'],
       ),
       createdAt: _asDateTime(data['createdAt']),
       updatedAt: _asDateTime(data['updatedAt']),
@@ -441,7 +504,13 @@ class BookingModel {
       'holidaySurchargePercent': holidaySurchargePercent,
       'calendarSurchargeAmount': calendarSurchargeAmount,
       'pricingBreakdown': pricingBreakdown,
-      'totalAmount': totalAmount,
+      'subtotalAmount': effectiveSubtotalAmount,
+      'totalAmount': payableAmount,
+      'voucherId': voucherId.trim(),
+      'userVoucherId': userVoucherId.trim(),
+      'voucherCode': voucherCode.trim(),
+      'voucherTitle': voucherTitle.trim(),
+      'voucherDiscountAmount': voucherDiscountAmount,
       'status': BookingStatus.normalize(status),
       'paymentMethod': paymentMethod.trim(),
       'paymentStatus': PaymentStatus.normalize(paymentStatus),
@@ -458,6 +527,8 @@ class BookingModel {
       'commissionApplied': commissionApplied,
       'commissionInvoiceId': commissionInvoiceId,
       'commissionSettledAt': _timestamp(commissionSettledAt),
+      'loyaltyPointsAwarded': loyaltyPointsAwarded,
+      'loyaltyPointsAwardedAt': _timestamp(loyaltyPointsAwardedAt),
     };
   }
 
@@ -492,7 +563,13 @@ class BookingModel {
     double? holidaySurchargePercent,
     double? calendarSurchargeAmount,
     Map<String, double>? pricingBreakdown,
+    double? subtotalAmount,
     double? totalAmount,
+    String? voucherId,
+    String? userVoucherId,
+    String? voucherCode,
+    String? voucherTitle,
+    double? voucherDiscountAmount,
     String? status,
     String? paymentMethod,
     String? paymentStatus,
@@ -509,6 +586,8 @@ class BookingModel {
     bool? commissionApplied,
     String? commissionInvoiceId,
     DateTime? commissionSettledAt,
+    int? loyaltyPointsAwarded,
+    DateTime? loyaltyPointsAwardedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -532,8 +611,7 @@ class BookingModel {
       nights: nights ?? this.nights,
       baseHourlyPrice: baseHourlyPrice ?? this.baseHourlyPrice,
       firstHourPrice: firstHourPrice ?? this.firstHourPrice,
-      additionalHourPrice:
-          additionalHourPrice ?? this.additionalHourPrice,
+      additionalHourPrice: additionalHourPrice ?? this.additionalHourPrice,
       durationMinutes: durationMinutes ?? this.durationMinutes,
       ratePlanId: ratePlanId ?? this.ratePlanId,
       ratePlanName: ratePlanName ?? this.ratePlanName,
@@ -547,31 +625,35 @@ class BookingModel {
       calendarSurchargeAmount:
           calendarSurchargeAmount ?? this.calendarSurchargeAmount,
       pricingBreakdown: pricingBreakdown ?? this.pricingBreakdown,
+      subtotalAmount: subtotalAmount ?? this.subtotalAmount,
       totalAmount: totalAmount ?? this.totalAmount,
+      voucherId: voucherId ?? this.voucherId,
+      userVoucherId: userVoucherId ?? this.userVoucherId,
+      voucherCode: voucherCode ?? this.voucherCode,
+      voucherTitle: voucherTitle ?? this.voucherTitle,
+      voucherDiscountAmount:
+          voucherDiscountAmount ?? this.voucherDiscountAmount,
       status: status ?? this.status,
       paymentMethod: paymentMethod ?? this.paymentMethod,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       paymentReference: paymentReference ?? this.paymentReference,
       paymentDeadline: paymentDeadline ?? this.paymentDeadline,
-      paymentSubmittedAt:
-          paymentSubmittedAt ?? this.paymentSubmittedAt,
-      paymentConfirmedAt:
-          paymentConfirmedAt ?? this.paymentConfirmedAt,
+      paymentSubmittedAt: paymentSubmittedAt ?? this.paymentSubmittedAt,
+      paymentConfirmedAt: paymentConfirmedAt ?? this.paymentConfirmedAt,
       receiverBankBin: receiverBankBin ?? this.receiverBankBin,
-      receiverBankName:
-          receiverBankName ?? this.receiverBankName,
+      receiverBankName: receiverBankName ?? this.receiverBankName,
       receiverAccountNumber:
           receiverAccountNumber ?? this.receiverAccountNumber,
-      receiverAccountName:
-          receiverAccountName ?? this.receiverAccountName,
+      receiverAccountName: receiverAccountName ?? this.receiverAccountName,
       commissionRate: commissionRate ?? this.commissionRate,
       commissionAmount: commissionAmount ?? this.commissionAmount,
-      commissionApplied:
-          commissionApplied ?? this.commissionApplied,
-      commissionInvoiceId:
-          commissionInvoiceId ?? this.commissionInvoiceId,
-      commissionSettledAt:
-          commissionSettledAt ?? this.commissionSettledAt,
+      commissionApplied: commissionApplied ?? this.commissionApplied,
+      commissionInvoiceId: commissionInvoiceId ?? this.commissionInvoiceId,
+      commissionSettledAt: commissionSettledAt ?? this.commissionSettledAt,
+      loyaltyPointsAwarded:
+          loyaltyPointsAwarded ?? this.loyaltyPointsAwarded,
+      loyaltyPointsAwardedAt:
+          loyaltyPointsAwardedAt ?? this.loyaltyPointsAwardedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

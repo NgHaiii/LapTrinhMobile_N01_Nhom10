@@ -12,10 +12,12 @@ enum VoucherDiscountType {
   }
 
   static VoucherDiscountType fromValue(String? value) {
-    return VoucherDiscountType.values.firstWhere(
-      (item) => item.name == value,
-      orElse: () => VoucherDiscountType.fixed,
-    );
+    // Hỗ trợ cả tên enum trong model và tên được form admin lưu.
+    return switch (value?.trim()) {
+      'percentage' || 'percent' => VoucherDiscountType.percentage,
+      'fixed' || 'fixedAmount' => VoucherDiscountType.fixed,
+      _ => VoucherDiscountType.fixed,
+    };
   }
 }
 
@@ -97,8 +99,19 @@ class VoucherModel {
     return quantity > 0 && usedCount >= quantity;
   }
 
+  /// Voucher được phép hiển thị và nhận/đổi.
+  ///
+  /// Không kiểm tra ngày bắt đầu để khách có thể đổi voucher trước
+  /// thời gian áp dụng.
+  bool get canClaim {
+    return isActive && !isExpired && !isOutOfStock;
+  }
+
+  /// Voucher được phép áp dụng vào đơn hàng.
+  ///
+  /// Khác với [canClaim], voucher chỉ sử dụng được khi đã đến ngày bắt đầu.
   bool get canUse {
-    return isActive && !isExpired && !isNotStarted && !isOutOfStock;
+    return canClaim && !isNotStarted;
   }
 
   String get discountLabel {
@@ -106,6 +119,7 @@ class VoucherModel {
       final value = discountValue.toStringAsFixed(
         discountValue.truncateToDouble() == discountValue ? 0 : 1,
       );
+
       return 'Giảm $value%';
     }
 
@@ -113,14 +127,19 @@ class VoucherModel {
   }
 
   double calculateDiscount(double orderAmount) {
-    if (!canUse || orderAmount < minOrderAmount) return 0;
+    // Giữ canUse tại đây để voucher chưa đến ngày không thể giảm giá.
+    if (!canUse || orderAmount < minOrderAmount) {
+      return 0;
+    }
 
     final rawDiscount = discountType == VoucherDiscountType.percentage
         ? orderAmount * discountValue / 100
         : discountValue;
 
     if (maxDiscountAmount > 0) {
-      return rawDiscount > maxDiscountAmount ? maxDiscountAmount : rawDiscount;
+      return rawDiscount > maxDiscountAmount
+          ? maxDiscountAmount
+          : rawDiscount;
     }
 
     return rawDiscount;
@@ -129,7 +148,10 @@ class VoucherModel {
   factory VoucherModel.fromDoc(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
-    return VoucherModel.fromMap(doc.data() ?? {}, doc.id);
+    return VoucherModel.fromMap(
+      doc.data() ?? const <String, dynamic>{},
+      doc.id,
+    );
   }
 
   factory VoucherModel.fromMap(
@@ -138,22 +160,33 @@ class VoucherModel {
   ) {
     return VoucherModel(
       id: id,
-      code: data['code'] as String? ?? '',
-      title: data['title'] as String? ?? '',
-      description: data['description'] as String? ?? '',
-      discountType:
-          VoucherDiscountType.fromValue(data['discountType'] as String?),
-      target: VoucherTarget.fromValue(data['target'] as String?),
+      code: _stringValue(data['code']),
+      title: _stringValue(data['title']),
+      description: _stringValue(data['description']),
+      discountType: VoucherDiscountType.fromValue(
+        data['discountType']?.toString(),
+      ),
+      target: VoucherTarget.fromValue(
+        data['target']?.toString(),
+      ),
       discountValue: _doubleValue(data['discountValue']),
       maxDiscountAmount: _doubleValue(data['maxDiscountAmount']),
       minOrderAmount: _doubleValue(data['minOrderAmount']),
-      requiredPoints: _intValue(data['requiredPoints']),
+
+      // Form admin đang lưu là pointsRequired.
+      // requiredPoints được giữ làm dự phòng cho dữ liệu cũ.
+      requiredPoints: _intValue(
+        data['pointsRequired'] ?? data['requiredPoints'],
+      ),
+
       quantity: _intValue(data['quantity']),
       usedCount: _intValue(data['usedCount']),
       startAt: _dateTime(data['startAt']),
       endAt: _dateTime(data['endAt']),
-      isActive: data['isActive'] as bool? ?? true,
-      imageUrl: data['imageUrl'] as String? ?? '',
+      isActive: data['isActive'] is bool
+          ? data['isActive'] as bool
+          : true,
+      imageUrl: _stringValue(data['imageUrl']),
       terms: _stringList(data['terms']),
       createdAt: _dateTime(data['createdAt']),
       updatedAt: _dateTime(data['updatedAt']),
@@ -178,7 +211,9 @@ class VoucherModel {
       'isActive': isActive,
       'imageUrl': imageUrl,
       'terms': terms,
-      'createdAt': createdAt == null ? FieldValue.serverTimestamp() : createdAt,
+      'createdAt': createdAt == null
+          ? FieldValue.serverTimestamp()
+          : createdAt,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -228,26 +263,70 @@ class VoucherModel {
   }
 }
 
+String _stringValue(dynamic value) {
+  return value?.toString().trim() ?? '';
+}
+
 List<String> _stringList(dynamic value) {
-  if (value is List) return value.whereType<String>().toList();
+  if (value is List) {
+    return value
+        .map((item) => item.toString().trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+  }
+
+  // Form admin hiện lưu điều khoản dưới dạng một chuỗi.
+  if (value is String) {
+    return value
+        .split(RegExp(r'\r?\n'))
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+  }
+
   return const [];
 }
 
 double _doubleValue(dynamic value) {
-  if (value is int) return value.toDouble();
-  if (value is double) return value;
-  if (value is num) return value.toDouble();
+  if (value is num) {
+    return value.toDouble();
+  }
+
+  if (value is String) {
+    return double.tryParse(value.trim()) ?? 0;
+  }
+
   return 0;
 }
 
 int _intValue(dynamic value) {
-  if (value is int) return value;
-  if (value is num) return value.toInt();
+  if (value is num) {
+    return value.toInt();
+  }
+
+  if (value is String) {
+    return int.tryParse(value.trim()) ?? 0;
+  }
+
   return 0;
 }
 
 DateTime? _dateTime(dynamic value) {
-  if (value is Timestamp) return value.toDate();
-  if (value is DateTime) return value;
+  if (value is Timestamp) {
+    return value.toDate();
+  }
+
+  if (value is DateTime) {
+    return value;
+  }
+
+  if (value is int) {
+    return DateTime.fromMillisecondsSinceEpoch(value);
+  }
+
+  if (value is String) {
+    return DateTime.tryParse(value);
+  }
+
   return null;
 }

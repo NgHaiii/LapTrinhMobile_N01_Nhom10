@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../model/booking.dart';
 import '../model/loyalty_point.dart';
 import '../model/point_transaction.dart';
 
@@ -16,12 +17,18 @@ class LoyaltyService {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
 
+  static const int defaultPointPerAmount = 10000;
+
   CollectionReference<Map<String, dynamic>> get _pointsRef {
     return _firestore.collection('loyaltyPoints');
   }
 
   CollectionReference<Map<String, dynamic>> get _transactionsRef {
     return _firestore.collection('pointTransactions');
+  }
+
+  CollectionReference<Map<String, dynamic>> get _bookingsRef {
+    return _firestore.collection('bookings');
   }
 
   Stream<LoyaltyPointModel> watchMyPoints() {
@@ -91,18 +98,130 @@ class LoyaltyService {
     return LoyaltyPointModel.fromDoc(doc);
   }
 
-  Future<void> earnPointsFromBooking({
-    required String bookingId,
-    required double paidAmount,
-    int pointPerAmount = 10000,
-  }) async {
-    final userId = _auth.currentUser?.uid;
+  int calculatePointsFromAmount(
+    double amount, {
+    int pointPerAmount = defaultPointPerAmount,
+  }) {
+    if (amount <= 0 || pointPerAmount <= 0) return 0;
+    return (amount / pointPerAmount).floor();
+  }
 
-    if (userId == null) {
-      throw Exception('Bạn cần đăng nhập để tích điểm.');
+  Future<int> awardPointsForCompletedBooking(
+    String bookingId, {
+    int pointPerAmount = defaultPointPerAmount,
+  }) async {
+    if (bookingId.trim().isEmpty) {
+      throw Exception('Mã đơn đặt phòng không hợp lệ.');
     }
 
-    final points = (paidAmount / pointPerAmount).floor();
+    final bookingRef = _bookingsRef.doc(bookingId.trim());
+
+    return _firestore.runTransaction((transaction) async {
+      final bookingSnapshot = await transaction.get(bookingRef);
+      final bookingData = bookingSnapshot.data();
+
+      if (bookingData == null) {
+        throw Exception('Không tìm thấy đơn đặt phòng.');
+      }
+
+      final booking = BookingModel.fromMap(
+        bookingData,
+        bookingSnapshot.id,
+      );
+
+      if (booking.status != BookingStatus.completed) {
+        throw Exception('Chỉ cộng điểm cho đơn đã hoàn thành.');
+      }
+
+      if (booking.paymentStatus != PaymentStatus.paid) {
+        throw Exception('Chỉ cộng điểm cho đơn đã thanh toán.');
+      }
+
+      if (booking.customerId.trim().isEmpty) {
+        throw Exception('Đơn đặt phòng thiếu thông tin khách hàng.');
+      }
+
+      if (booking.hasAwardedLoyaltyPoints) {
+        return booking.loyaltyPointsAwarded;
+      }
+
+      final points = calculatePointsFromAmount(
+        booking.payableAmount,
+        pointPerAmount: pointPerAmount,
+      );
+
+      if (points <= 0) {
+        transaction.update(bookingRef, {
+          'loyaltyPointsAwarded': 0,
+          'loyaltyPointsAwardedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        return 0;
+      }
+
+      final pointsDoc = _pointsRef.doc(booking.customerId);
+      final pointsSnapshot = await transaction.get(pointsDoc);
+
+      final current = pointsSnapshot.exists
+          ? LoyaltyPointModel.fromDoc(pointsSnapshot)
+          : LoyaltyPointModel.empty(booking.customerId);
+
+      final newTotal = current.totalPoints + points;
+      final newAvailable = current.availablePoints + points;
+      final newTier = LoyaltyTier.fromPoints(newTotal);
+
+      transaction.set(
+        pointsDoc,
+        current
+            .copyWith(
+              userId: booking.customerId,
+              totalPoints: newTotal,
+              availablePoints: newAvailable,
+              tier: newTier,
+              updatedAt: DateTime.now(),
+            )
+            .toMap(),
+        SetOptions(merge: true),
+      );
+
+      final transactionDoc = _transactionsRef.doc();
+
+      transaction.set(
+        transactionDoc,
+        PointTransactionModel(
+          id: transactionDoc.id,
+          userId: booking.customerId,
+          points: points,
+          type: PointTransactionType.earn,
+          source: PointTransactionSource.booking,
+          title: 'Tích điểm đặt phòng',
+          description:
+              'Tích $points điểm từ đơn ${booking.shortCode} tại ${booking.hotelName}.',
+          referenceId: booking.id,
+        ).toMap(),
+      );
+
+      transaction.update(bookingRef, {
+        'loyaltyPointsAwarded': points,
+        'loyaltyPointsAwardedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      return points;
+    });
+  }
+
+  Future<void> earnPointsFromBooking({
+    required String bookingId,
+    required String userId,
+    required double paidAmount,
+    int pointPerAmount = defaultPointPerAmount,
+  }) async {
+    final points = calculatePointsFromAmount(
+      paidAmount,
+      pointPerAmount: pointPerAmount,
+    );
 
     if (points <= 0) return;
 
@@ -142,9 +261,11 @@ class LoyaltyService {
         pointsDoc,
         current
             .copyWith(
+              userId: userId,
               totalPoints: newTotal,
               availablePoints: newAvailable,
               tier: newTier,
+              updatedAt: DateTime.now(),
             )
             .toMap(),
         SetOptions(merge: true),
@@ -218,8 +339,10 @@ class LoyaltyService {
       pointsDoc,
       current
           .copyWith(
+            userId: userId,
             availablePoints: newAvailable,
             usedPoints: newUsed,
+            updatedAt: DateTime.now(),
           )
           .toMap(),
       SetOptions(merge: true),
@@ -266,9 +389,11 @@ class LoyaltyService {
         pointsDoc,
         current
             .copyWith(
+              userId: userId,
               totalPoints: newTotal,
               availablePoints: newAvailable,
               tier: newTier,
+              updatedAt: DateTime.now(),
             )
             .toMap(),
         SetOptions(merge: true),
@@ -289,5 +414,12 @@ class LoyaltyService {
         ).toMap(),
       );
     });
+  }
+}
+
+extension BookingLoyaltyCode on BookingModel {
+  String get shortCode {
+    if (id.length <= 8) return id.toUpperCase();
+    return id.substring(0, 8).toUpperCase();
   }
 }

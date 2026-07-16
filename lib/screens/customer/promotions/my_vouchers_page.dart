@@ -25,7 +25,7 @@ class _MyVouchersPageState extends State<MyVouchersPage> {
       body: Column(
         children: [
           SizedBox(
-            height: 48,
+            height: 52,
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -43,9 +43,18 @@ class _MyVouchersPageState extends State<MyVouchersPage> {
                   },
                 ),
                 _FilterChip(
+                  label: 'Đang giữ',
+                  selected: _status == UserVoucherStatus.reserved,
+                  onTap: () {
+                    setState(() => _status = UserVoucherStatus.reserved);
+                  },
+                ),
+                _FilterChip(
                   label: 'Đã dùng',
                   selected: _status == UserVoucherStatus.used,
-                  onTap: () => setState(() => _status = UserVoucherStatus.used),
+                  onTap: () {
+                    setState(() => _status = UserVoucherStatus.used);
+                  },
                 ),
                 _FilterChip(
                   label: 'Hết hạn',
@@ -61,7 +70,8 @@ class _MyVouchersPageState extends State<MyVouchersPage> {
             child: StreamBuilder<List<UserVoucherModel>>(
               stream: _voucherService.watchMyVouchers(status: _status),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
@@ -69,7 +79,7 @@ class _MyVouchersPageState extends State<MyVouchersPage> {
                   return _EmptyState(
                     icon: Icons.cloud_off_outlined,
                     title: 'Không thể tải voucher',
-                    message: snapshot.error.toString(),
+                    message: _cleanError(snapshot.error),
                   );
                 }
 
@@ -79,7 +89,8 @@ class _MyVouchersPageState extends State<MyVouchersPage> {
                   return const _EmptyState(
                     icon: Icons.confirmation_number_outlined,
                     title: 'Chưa có voucher',
-                    message: 'Bạn có thể đổi điểm hoặc lưu ưu đãi tại trang ưu đãi.',
+                    message:
+                        'Bạn có thể đổi điểm hoặc lưu ưu đãi tại trang ưu đãi.',
                   );
                 }
 
@@ -108,11 +119,8 @@ class _UserVoucherCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final statusColor = switch (voucher.status) {
-      UserVoucherStatus.available => colors.primary,
-      UserVoucherStatus.used => colors.outline,
-      UserVoucherStatus.expired => colors.error,
-    };
+    final statusColor = _statusColor(context, voucher.status);
+    final statusIcon = _statusIcon(voucher.status);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -128,7 +136,7 @@ class _UserVoucherCard extends StatelessWidget {
               radius: 25,
               backgroundColor: statusColor.withValues(alpha: 0.14),
               foregroundColor: statusColor,
-              child: const Icon(Icons.confirmation_number_outlined),
+              child: Icon(statusIcon),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -151,6 +159,16 @@ class _UserVoucherCard extends StatelessWidget {
                       color: colors.primary,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 0.6,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    _statusDescription(voucher),
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      fontSize: 12,
+                      height: 1.25,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   if (voucher.redeemedByPoints) ...[
@@ -176,7 +194,7 @@ class _UserVoucherCard extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
                 child: Text(
-                  voucher.status.label,
+                  voucher.statusLabel,
                   style: TextStyle(
                     color: statusColor,
                     fontSize: 11,
@@ -262,4 +280,55 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+Color _statusColor(BuildContext context, UserVoucherStatus status) {
+  final colors = Theme.of(context).colorScheme;
+
+  return switch (status) {
+    UserVoucherStatus.available => colors.primary,
+    UserVoucherStatus.reserved => colors.tertiary,
+    UserVoucherStatus.used => colors.outline,
+    UserVoucherStatus.expired => colors.error,
+  };
+}
+
+IconData _statusIcon(UserVoucherStatus status) {
+  return switch (status) {
+    UserVoucherStatus.available => Icons.confirmation_number_outlined,
+    UserVoucherStatus.reserved => Icons.lock_clock_outlined,
+    UserVoucherStatus.used => Icons.task_alt_outlined,
+    UserVoucherStatus.expired => Icons.event_busy_outlined,
+  };
+}
+
+String _statusDescription(UserVoucherModel voucher) {
+  if (voucher.isExpired) {
+    return 'Voucher đã hết hạn sử dụng.';
+  }
+
+  return switch (voucher.status) {
+    UserVoucherStatus.available => 'Sẵn sàng áp dụng khi đặt phòng.',
+    UserVoucherStatus.reserved => voucher.bookingId.trim().isEmpty
+        ? 'Đang được giữ cho một đơn đặt phòng.'
+        : 'Đang được giữ cho đơn ${_shortCode(voucher.bookingId)}.',
+    UserVoucherStatus.used => voucher.bookingId.trim().isEmpty
+        ? 'Voucher đã được sử dụng.'
+        : 'Đã dùng cho đơn ${_shortCode(voucher.bookingId)}.',
+    UserVoucherStatus.expired => 'Voucher đã hết hạn sử dụng.',
+  };
+}
+
+String _shortCode(String id) {
+  final value = id.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toUpperCase();
+
+  if (value.length <= 8) return value;
+  return value.substring(value.length - 8);
+}
+
+String _cleanError(Object? error) {
+  return error
+      .toString()
+      .replaceFirst('Bad state: ', '')
+      .replaceFirst('Exception: ', '');
 }

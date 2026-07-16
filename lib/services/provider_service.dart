@@ -5,6 +5,7 @@ import '../model/booking.dart';
 import '../model/hotel.dart';
 import '../model/room.dart';
 import '../model/room_rate_plan.dart';
+import 'loyalty_service.dart';
 
 class ProviderStats {
   const ProviderStats({
@@ -26,9 +27,8 @@ class ProviderService {
   ProviderService({
     FirebaseAuth? auth,
     FirebaseFirestore? firestore,
-  }) : _auth = auth ?? FirebaseAuth.instance,
-       _firestore =
-           firestore ?? FirebaseFirestore.instance;
+  })  : _auth = auth ?? FirebaseAuth.instance,
+        _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
@@ -49,21 +49,19 @@ class ProviderService {
         .where('providerId', isEqualTo: providerId)
         .snapshots()
         .map((snapshot) {
-          final hotels = snapshot.docs
-              .map(
-                (document) => HotelModel.fromMap(
-                  document.data(),
-                  document.id,
-                ),
-              )
-              .toList();
+      final hotels = snapshot.docs
+          .map(
+            (document) => HotelModel.fromMap(
+              document.data(),
+              document.id,
+            ),
+          )
+          .toList();
 
-          hotels.sort(
-            (a, b) => a.name.compareTo(b.name),
-          );
+      hotels.sort((a, b) => a.name.compareTo(b.name));
 
-          return hotels;
-        });
+      return hotels;
+    });
   }
 
   Stream<List<RoomModel>> watchRooms({
@@ -74,35 +72,28 @@ class ProviderService {
         .where('providerId', isEqualTo: providerId)
         .snapshots()
         .map((snapshot) {
-          var rooms = snapshot.docs
-              .map(
-                (document) => RoomModel.fromMap(
-                  document.data(),
-                  document.id,
-                ),
-              )
-              .toList();
+      var rooms = snapshot.docs
+          .map(
+            (document) => RoomModel.fromMap(
+              document.data(),
+              document.id,
+            ),
+          )
+          .toList();
 
-          if (hotelId?.trim().isNotEmpty == true) {
-            rooms = rooms
-                .where(
-                  (room) =>
-                      room.hotelId == hotelId!.trim(),
-                )
-                .toList();
-          }
+      if (hotelId?.trim().isNotEmpty == true) {
+        rooms = rooms
+            .where((room) => room.hotelId == hotelId!.trim())
+            .toList();
+      }
 
-          rooms.sort(
-            (a, b) =>
-                a.roomNumber.compareTo(b.roomNumber),
-          );
+      rooms.sort((a, b) => a.roomNumber.compareTo(b.roomNumber));
 
-          return rooms;
-        });
+      return rooms;
+    });
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>>
-  watchBookings({
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchBookings({
     String status = 'all',
   }) {
     Query<Map<String, dynamic>> query = _firestore
@@ -110,10 +101,7 @@ class ProviderService {
         .where('providerId', isEqualTo: providerId);
 
     if (status != 'all') {
-      query = query.where(
-        'status',
-        isEqualTo: status,
-      );
+      query = query.where('status', isEqualTo: status);
     }
 
     return query.snapshots();
@@ -167,21 +155,17 @@ class ProviderService {
         document.id,
       );
 
-      if (booking.status ==
-              BookingStatus.pendingProvider ||
+      if (booking.status == BookingStatus.pendingProvider ||
           booking.status == BookingStatus.pending) {
         pending++;
       }
 
-      if (booking.status ==
-              BookingStatus.awaitingPayment ||
-          booking.status ==
-              BookingStatus.paymentReview) {
+      if (booking.status == BookingStatus.awaitingPayment ||
+          booking.status == BookingStatus.paymentReview) {
         awaitingPayment++;
       }
 
-      if (booking.paymentStatus ==
-          PaymentStatus.paid) {
+      if (booking.paymentStatus == PaymentStatus.paid) {
         revenue += booking.totalAmount;
       }
     }
@@ -212,33 +196,23 @@ class ProviderService {
     final normalizedImages = _normalizeList(images);
 
     if (name.trim().length < 2) {
-      throw StateError(
-        'Tên khách sạn không hợp lệ.',
-      );
+      throw StateError('Tên khách sạn không hợp lệ.');
     }
 
     if (province.trim().isEmpty) {
-      throw StateError(
-        'Vui lòng nhập tỉnh hoặc thành phố.',
-      );
+      throw StateError('Vui lòng nhập tỉnh hoặc thành phố.');
     }
 
     if (district.trim().isEmpty) {
-      throw StateError(
-        'Vui lòng nhập quận hoặc huyện.',
-      );
+      throw StateError('Vui lòng nhập quận hoặc huyện.');
     }
 
     if (address.trim().isEmpty) {
-      throw StateError(
-        'Vui lòng nhập địa chỉ khách sạn.',
-      );
+      throw StateError('Vui lòng nhập địa chỉ khách sạn.');
     }
 
     if (normalizedImages.isEmpty) {
-      throw StateError(
-        'Khách sạn phải có ít nhất một ảnh.',
-      );
+      throw StateError('Khách sạn phải có ít nhất một ảnh.');
     }
 
     _validateHotelContact(
@@ -261,13 +235,10 @@ class ProviderService {
       'category': category.trim(),
       'status': 'approved',
       'rating': 0.0,
-      'contactPhone':
-          _normalizePhone(contactPhone),
-      'contactEmail':
-          contactEmail.trim().toLowerCase(),
+      'contactPhone': _normalizePhone(contactPhone),
+      'contactEmail': contactEmail.trim().toLowerCase(),
       'zaloPhone': _normalizePhone(zaloPhone),
-      'facebookUrl':
-          _normalizeFacebookUrl(facebookUrl),
+      'facebookUrl': _normalizeFacebookUrl(facebookUrl),
       'minPrice': 0.0,
       'minHourlyPrice': 0.0,
       'minFirstHourPrice': 0.0,
@@ -277,28 +248,19 @@ class ProviderService {
     });
   }
 
-  Future<void> updateHotel(
-    HotelModel hotel,
-  ) async {
+  Future<void> updateHotel(HotelModel hotel) async {
     _ensureOwnership(hotel.providerId);
 
     if (hotel.id.trim().isEmpty) {
-      throw StateError(
-        'Mã khách sạn không hợp lệ.',
-      );
+      throw StateError('Mã khách sạn không hợp lệ.');
     }
 
     if (hotel.name.trim().length < 2) {
-      throw StateError(
-        'Tên khách sạn không hợp lệ.',
-      );
+      throw StateError('Tên khách sạn không hợp lệ.');
     }
 
-    if (hotel.images.isEmpty &&
-        hotel.imageUrl.trim().isEmpty) {
-      throw StateError(
-        'Khách sạn phải có ít nhất một ảnh.',
-      );
+    if (hotel.images.isEmpty && hotel.imageUrl.trim().isEmpty) {
+      throw StateError('Khách sạn phải có ít nhất một ảnh.');
     }
 
     _validateHotelContact(
@@ -308,29 +270,18 @@ class ProviderService {
       facebook: hotel.facebookUrl,
     );
 
-    await _firestore
-        .collection('hotels')
-        .doc(hotel.id)
-        .update({
-          ...hotel.toMap(),
-          'providerId': providerId,
-          'contactPhone':
-              _normalizePhone(hotel.contactPhone),
-          'contactEmail':
-              hotel.contactEmail.trim().toLowerCase(),
-          'zaloPhone':
-              _normalizePhone(hotel.zaloPhone),
-          'facebookUrl': _normalizeFacebookUrl(
-            hotel.facebookUrl,
-          ),
-          'updatedAt':
-              FieldValue.serverTimestamp(),
-        });
+    await _firestore.collection('hotels').doc(hotel.id).update({
+      ...hotel.toMap(),
+      'providerId': providerId,
+      'contactPhone': _normalizePhone(hotel.contactPhone),
+      'contactEmail': hotel.contactEmail.trim().toLowerCase(),
+      'zaloPhone': _normalizePhone(hotel.zaloPhone),
+      'facebookUrl': _normalizeFacebookUrl(hotel.facebookUrl),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  Future<void> deleteHotel(
-    HotelModel hotel,
-  ) async {
+  Future<void> deleteHotel(HotelModel hotel) async {
     _ensureOwnership(hotel.providerId);
 
     final activeBookings = await _firestore
@@ -344,11 +295,8 @@ class ProviderService {
         document.id,
       );
 
-      if (booking.hotelId == hotel.id &&
-          !booking.isFinished) {
-        throw StateError(
-          'Khách sạn đang có đơn đặt phòng hoạt động.',
-        );
+      if (booking.hotelId == hotel.id && !booking.isFinished) {
+        throw StateError('Khách sạn đang có đơn đặt phòng hoạt động.');
       }
     }
 
@@ -365,9 +313,7 @@ class ProviderService {
       }
     }
 
-    batch.delete(
-      _firestore.collection('hotels').doc(hotel.id),
-    );
+    batch.delete(_firestore.collection('hotels').doc(hotel.id));
 
     await batch.commit();
   }
@@ -397,12 +343,10 @@ class ProviderService {
     final firstPrice = firstHourPrice > 0
         ? firstHourPrice
         : hourlyPrice > 0
-        ? hourlyPrice
-        : price / 24;
+            ? hourlyPrice
+            : price / 24;
 
-    final nextPrice = additionalHourPrice > 0
-        ? additionalHourPrice
-        : firstPrice;
+    final nextPrice = additionalHourPrice > 0 ? additionalHourPrice : firstPrice;
 
     _validateRoomData(
       roomNumber: roomNumber,
@@ -430,19 +374,15 @@ class ProviderService {
       'hourlyPrice': firstPrice,
       'firstHourPrice': firstPrice,
       'additionalHourPrice': nextPrice,
-      'weekendSurchargePercent':
-          weekendSurchargePercent.clamp(0, 100),
-      'holidaySurchargePercent':
-          holidaySurchargePercent.clamp(0, 100),
+      'weekendSurchargePercent': weekendSurchargePercent.clamp(0, 100),
+      'holidaySurchargePercent': holidaySurchargePercent.clamp(0, 100),
       'maxGuests': maxGuests,
       'description': description.trim(),
       'isAvailable': isAvailable,
       'area': area,
       'bedCount': bedCount,
       'bedType': bedType.trim(),
-      'imageUrl': normalizedImages.isEmpty
-          ? ''
-          : normalizedImages.first,
+      'imageUrl': normalizedImages.isEmpty ? '' : normalizedImages.first,
       'images': normalizedImages,
       'amenities': _normalizeList(amenities),
       'ratePlans': _normalizeRatePlans(ratePlans)
@@ -455,23 +395,17 @@ class ProviderService {
     await _synchronizeMinimumPrices(hotelId);
   }
 
-  Future<void> updateRoom(
-    RoomModel room,
-  ) async {
+  Future<void> updateRoom(RoomModel room) async {
     _ensureOwnership(room.providerId);
     await _ensureHotelOwnership(room.hotelId);
 
     _validateRoomData(
       roomNumber: room.roomNumber,
-      firstHourPrice:
-          room.effectiveFirstHourPrice,
-      additionalHourPrice:
-          room.effectiveAdditionalHourPrice,
+      firstHourPrice: room.effectiveFirstHourPrice,
+      additionalHourPrice: room.effectiveAdditionalHourPrice,
       maxGuests: room.maxGuests,
-      weekendPercent:
-          room.weekendSurchargePercent,
-      holidayPercent:
-          room.holidaySurchargePercent,
+      weekendPercent: room.weekendSurchargePercent,
+      holidayPercent: room.holidaySurchargePercent,
       ratePlans: room.ratePlans,
     );
 
@@ -481,21 +415,16 @@ class ProviderService {
       excludedRoomId: room.id,
     );
 
-    await _firestore
-        .collection('rooms')
-        .doc(room.id)
-        .update({
-          ...room.toMap(),
-          'providerId': providerId,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+    await _firestore.collection('rooms').doc(room.id).update({
+      ...room.toMap(),
+      'providerId': providerId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
 
     await _synchronizeMinimumPrices(room.hotelId);
   }
 
-  Future<void> deleteRoom(
-    RoomModel room,
-  ) async {
+  Future<void> deleteRoom(RoomModel room) async {
     _ensureOwnership(room.providerId);
 
     final bookings = await _firestore
@@ -509,34 +438,22 @@ class ProviderService {
         document.id,
       );
 
-      if (booking.roomId == room.id &&
-          !booking.isFinished) {
-        throw StateError(
-          'Phòng đang có đơn đặt phòng hoạt động.',
-        );
+      if (booking.roomId == room.id && !booking.isFinished) {
+        throw StateError('Phòng đang có đơn đặt phòng hoạt động.');
       }
     }
 
-    await _firestore
-        .collection('rooms')
-        .doc(room.id)
-        .delete();
+    await _firestore.collection('rooms').doc(room.id).delete();
 
     await _synchronizeMinimumPrices(room.hotelId);
   }
 
-  Future<void> approveBooking(
-    String bookingId,
-  ) async {
-    final booking =
-        await _getOwnedBooking(bookingId);
+  Future<void> approveBooking(String bookingId) async {
+    final booking = await _getOwnedBooking(bookingId);
 
     if (booking.status != BookingStatus.pending &&
-        booking.status !=
-            BookingStatus.pendingProvider) {
-      throw StateError(
-        'Đơn không còn ở trạng thái chờ duyệt.',
-      );
+        booking.status != BookingStatus.pendingProvider) {
+      throw StateError('Đơn không còn ở trạng thái chờ duyệt.');
     }
 
     final profile = await _firestore
@@ -548,52 +465,32 @@ class ProviderService {
 
     if (paymentData == null ||
         paymentData['isVerified'] != true ||
-        paymentData['verificationStatus'] !=
-            'approved') {
-      throw StateError(
-        'Tài khoản ngân hàng chưa được admin xác minh.',
-      );
+        paymentData['verificationStatus'] != 'approved') {
+      throw StateError('Tài khoản ngân hàng chưa được admin xác minh.');
     }
 
     await _ensureNoLegacyOverlap(booking);
 
-    await _firestore
-        .collection('bookings')
-        .doc(bookingId)
-        .update({
-          'status': BookingStatus.awaitingPayment,
-          'paymentStatus': PaymentStatus.unpaid,
-          'paymentDeadline': Timestamp.fromDate(
-            DateTime.now().add(
-              const Duration(hours: 2),
-            ),
-          ),
-          'receiverBankBin':
-              paymentData['bankBin']?.toString() ?? '',
-          'receiverBankName':
-              paymentData['bankName']?.toString() ?? '',
-          'receiverAccountNumber':
-              paymentData['accountNumber']?.toString() ??
-              '',
-          'receiverAccountName':
-              paymentData['accountName']?.toString() ??
-              '',
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+    await _firestore.collection('bookings').doc(bookingId).update({
+      'status': BookingStatus.awaitingPayment,
+      'paymentStatus': PaymentStatus.unpaid,
+      'paymentDeadline': Timestamp.fromDate(
+        DateTime.now().add(const Duration(hours: 2)),
+      ),
+      'receiverBankBin': paymentData['bankBin']?.toString() ?? '',
+      'receiverBankName': paymentData['bankName']?.toString() ?? '',
+      'receiverAccountNumber': paymentData['accountNumber']?.toString() ?? '',
+      'receiverAccountName': paymentData['accountName']?.toString() ?? '',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  Future<void> rejectBooking(
-    String bookingId,
-  ) async {
-    final booking =
-        await _getOwnedBooking(bookingId);
+  Future<void> rejectBooking(String bookingId) async {
+    final booking = await _getOwnedBooking(bookingId);
 
     if (booking.status != BookingStatus.pending &&
-        booking.status !=
-            BookingStatus.pendingProvider) {
-      throw StateError(
-        'Đơn không còn ở trạng thái chờ duyệt.',
-      );
+        booking.status != BookingStatus.pendingProvider) {
+      throw StateError('Đơn không còn ở trạng thái chờ duyệt.');
     }
 
     await _closeBooking(
@@ -602,84 +499,80 @@ class ProviderService {
     );
   }
 
-  Future<void> confirmPayment(
-    String bookingId,
-  ) async {
-    final booking =
-        await _getOwnedBooking(bookingId);
+  Future<void> confirmPayment(String bookingId) async {
+    final booking = await _getOwnedBooking(bookingId);
 
-    if (booking.status !=
-            BookingStatus.paymentReview ||
-        booking.paymentStatus !=
-            PaymentStatus.submitted) {
-      throw StateError(
-        'Khách chưa gửi xác nhận thanh toán.',
-      );
+    if (booking.status != BookingStatus.paymentReview ||
+        booking.paymentStatus != PaymentStatus.submitted) {
+      throw StateError('Khách chưa gửi xác nhận thanh toán.');
     }
 
-    await _firestore
-        .collection('bookings')
-        .doc(bookingId)
-        .update({
-          'status': BookingStatus.confirmed,
-          'paymentStatus': PaymentStatus.paid,
-          'paymentConfirmedAt':
-              FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+    await _firestore.collection('bookings').doc(bookingId).update({
+      'status': BookingStatus.confirmed,
+      'paymentStatus': PaymentStatus.paid,
+      'paymentConfirmedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  Future<void> rejectPayment(
-    String bookingId,
-  ) async {
-    final booking =
-        await _getOwnedBooking(bookingId);
+  Future<void> rejectPayment(String bookingId) async {
+    final booking = await _getOwnedBooking(bookingId);
 
-    if (booking.status !=
-        BookingStatus.paymentReview) {
-      throw StateError(
-        'Đơn không ở trạng thái kiểm tra tiền.',
-      );
+    if (booking.status != BookingStatus.paymentReview) {
+      throw StateError('Đơn không ở trạng thái kiểm tra tiền.');
     }
 
-    await _firestore
-        .collection('bookings')
-        .doc(bookingId)
-        .update({
-          'status': BookingStatus.awaitingPayment,
-          'paymentStatus': PaymentStatus.rejected,
-          'paymentDeadline': Timestamp.fromDate(
-            DateTime.now().add(
-              const Duration(hours: 1),
-            ),
-          ),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+    await _firestore.collection('bookings').doc(bookingId).update({
+      'status': BookingStatus.awaitingPayment,
+      'paymentStatus': PaymentStatus.rejected,
+      'paymentDeadline': Timestamp.fromDate(
+        DateTime.now().add(const Duration(hours: 1)),
+      ),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  Future<void> completeBooking(
-    String bookingId,
-  ) async {
-    final booking =
-        await _getOwnedBooking(bookingId);
+  Future<void> completeBooking(String bookingId) async {
+    final booking = await _getOwnedBooking(bookingId);
 
     if (booking.status != BookingStatus.confirmed) {
+      throw StateError('Chỉ đơn đã xác nhận mới được hoàn thành.');
+    }
+
+    if (booking.paymentStatus != PaymentStatus.paid) {
       throw StateError(
-        'Chỉ đơn đã xác nhận mới được hoàn thành.',
+        'Chỉ đơn đã thanh toán mới được hoàn thành và tích điểm.',
       );
+    }
+
+    if (booking.hasAwardedLoyaltyPoints) {
+      await _closeBooking(
+        bookingId,
+        BookingStatus.completed,
+      );
+      return;
     }
 
     await _closeBooking(
       bookingId,
       BookingStatus.completed,
     );
+
+    try {
+      await LoyaltyService(
+        firestore: _firestore,
+        auth: _auth,
+      ).awardPointsForCompletedBooking(bookingId);
+    } catch (error) {
+      throw StateError(
+        'Đơn đã hoàn thành nhưng chưa cộng được điểm thưởng: '
+        '${error.toString().replaceFirst('Exception: ', '')}',
+      );
+    }
   }
 
-  Future<void> cancelBooking(
-    String bookingId,
-  ) async {
-    final booking =
-        await _getOwnedBooking(bookingId);
+  Future<void> cancelBooking(String bookingId) async {
+    final booking = await _getOwnedBooking(bookingId);
 
     if (booking.isFinished) {
       throw StateError('Đơn đã kết thúc.');
@@ -696,17 +589,13 @@ class ProviderService {
     String status,
   ) {
     return switch (status) {
-      BookingStatus.confirmed =>
-        approveBooking(bookingId),
-      BookingStatus.rejected =>
-        rejectBooking(bookingId),
-      BookingStatus.completed =>
-        completeBooking(bookingId),
-      BookingStatus.cancelled =>
-        cancelBooking(bookingId),
+      BookingStatus.confirmed => approveBooking(bookingId),
+      BookingStatus.rejected => rejectBooking(bookingId),
+      BookingStatus.completed => completeBooking(bookingId),
+      BookingStatus.cancelled => cancelBooking(bookingId),
       _ => Future.error(
-        ArgumentError('Trạng thái không hợp lệ.'),
-      ),
+          ArgumentError('Trạng thái không hợp lệ.'),
+        ),
     };
   }
 
@@ -714,20 +603,15 @@ class ProviderService {
     String bookingId,
     String finalStatus,
   ) async {
-    final bookingReference = _firestore
-        .collection('bookings')
-        .doc(bookingId);
+    final bookingReference = _firestore.collection('bookings').doc(bookingId);
 
     await _firestore.runTransaction((transaction) async {
-      final bookingSnapshot =
-          await transaction.get(bookingReference);
+      final bookingSnapshot = await transaction.get(bookingReference);
 
       final data = bookingSnapshot.data();
 
       if (data == null) {
-        throw StateError(
-          'Không tìm thấy đơn đặt phòng.',
-        );
+        throw StateError('Không tìm thấy đơn đặt phòng.');
       }
 
       final booking = BookingModel.fromMap(
@@ -737,24 +621,16 @@ class ProviderService {
 
       _ensureOwnership(booking.providerId);
 
-      final scheduleIds =
-          _readScheduleIds(data, booking);
+      final scheduleIds = _readScheduleIds(data, booking);
 
       final scheduleReferences = scheduleIds
-          .map(
-            (id) => _firestore
-                .collection('roomSchedules')
-                .doc(id),
-          )
+          .map((id) => _firestore.collection('roomSchedules').doc(id))
           .toList();
 
-      final scheduleSnapshots =
-          <DocumentSnapshot<Map<String, dynamic>>>[];
+      final scheduleSnapshots = <DocumentSnapshot<Map<String, dynamic>>>[];
 
       for (final reference in scheduleReferences) {
-        scheduleSnapshots.add(
-          await transaction.get(reference),
-        );
+        scheduleSnapshots.add(await transaction.get(reference));
       }
 
       transaction.update(bookingReference, {
@@ -762,9 +638,7 @@ class ProviderService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      for (var index = 0;
-          index < scheduleReferences.length;
-          index++) {
+      for (var index = 0; index < scheduleReferences.length; index++) {
         final snapshot = scheduleSnapshots[index];
 
         if (!snapshot.exists) continue;
@@ -787,28 +661,20 @@ class ProviderService {
           {
             'reservations': reservations,
             'lastBookingId': booking.id,
-            'updatedAt':
-                FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
           },
         );
       }
     });
   }
 
-  Future<BookingModel> _getOwnedBooking(
-    String bookingId,
-  ) async {
-    final snapshot = await _firestore
-        .collection('bookings')
-        .doc(bookingId)
-        .get();
+  Future<BookingModel> _getOwnedBooking(String bookingId) async {
+    final snapshot = await _firestore.collection('bookings').doc(bookingId).get();
 
     final data = snapshot.data();
 
     if (data == null) {
-      throw StateError(
-        'Không tìm thấy đơn đặt phòng.',
-      );
+      throw StateError('Không tìm thấy đơn đặt phòng.');
     }
 
     final booking = BookingModel.fromMap(
@@ -820,9 +686,7 @@ class ProviderService {
     return booking;
   }
 
-  Future<void> _ensureNoLegacyOverlap(
-    BookingModel current,
-  ) async {
+  Future<void> _ensureNoLegacyOverlap(BookingModel current) async {
     final snapshot = await _firestore
         .collection('bookings')
         .where('providerId', isEqualTo: providerId)
@@ -836,10 +700,7 @@ class ProviderService {
         document.id,
       );
 
-      if (booking.roomId != current.roomId) {
-        continue;
-      }
-
+      if (booking.roomId != current.roomId) continue;
       if (booking.isFinished) continue;
 
       final overlaps =
@@ -847,26 +708,16 @@ class ProviderService {
           current.checkOut.isAfter(booking.checkIn);
 
       if (overlaps) {
-        throw StateError(
-          'Phòng đã có đơn khác trong thời gian này.',
-        );
+        throw StateError('Phòng đã có đơn khác trong thời gian này.');
       }
     }
   }
 
-  Future<void> _ensureHotelOwnership(
-    String hotelId,
-  ) async {
-    final snapshot = await _firestore
-        .collection('hotels')
-        .doc(hotelId)
-        .get();
+  Future<void> _ensureHotelOwnership(String hotelId) async {
+    final snapshot = await _firestore.collection('hotels').doc(hotelId).get();
 
-    if (!snapshot.exists ||
-        snapshot.data()?['providerId'] != providerId) {
-      throw StateError(
-        'Bạn không có quyền quản lý khách sạn này.',
-      );
+    if (!snapshot.exists || snapshot.data()?['providerId'] != providerId) {
+      throw StateError('Bạn không có quyền quản lý khách sạn này.');
     }
   }
 
@@ -878,15 +729,11 @@ class ProviderService {
     final snapshot = await _firestore
         .collection('rooms')
         .where('hotelId', isEqualTo: hotelId)
-        .where(
-          'roomNumber',
-          isEqualTo: roomNumber.trim(),
-        )
+        .where('roomNumber', isEqualTo: roomNumber.trim())
         .get();
 
     final duplicated = snapshot.docs.any(
-      (document) =>
-          document.id != excludedRoomId,
+      (document) => document.id != excludedRoomId,
     );
 
     if (duplicated) {
@@ -902,68 +749,44 @@ class ProviderService {
   }) {
     final normalizedPhone = _normalizePhone(phone);
 
-    if (!_isValidVietnamesePhone(
-      normalizedPhone,
-    )) {
-      throw StateError(
-        'Số điện thoại liên hệ không hợp lệ.',
-      );
+    if (!_isValidVietnamesePhone(normalizedPhone)) {
+      throw StateError('Số điện thoại liên hệ không hợp lệ.');
     }
 
-    final normalizedEmail =
-        email.trim().toLowerCase();
+    final normalizedEmail = email.trim().toLowerCase();
 
     if (normalizedEmail.isNotEmpty &&
-        !RegExp(
-          r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-        ).hasMatch(normalizedEmail)) {
-      throw StateError(
-        'Email liên hệ không hợp lệ.',
-      );
+        !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(normalizedEmail)) {
+      throw StateError('Email liên hệ không hợp lệ.');
     }
 
     final normalizedZalo = _normalizePhone(zalo);
 
     if (normalizedZalo.isNotEmpty &&
-        !_isValidVietnamesePhone(
-          normalizedZalo,
-        )) {
-      throw StateError(
-        'Số điện thoại Zalo không hợp lệ.',
-      );
+        !_isValidVietnamesePhone(normalizedZalo)) {
+      throw StateError('Số điện thoại Zalo không hợp lệ.');
     }
 
     if (facebook.trim().isNotEmpty) {
-      final normalizedUrl =
-          _normalizeFacebookUrl(facebook);
+      final normalizedUrl = _normalizeFacebookUrl(facebook);
 
       final uri = Uri.tryParse(normalizedUrl);
       final host = uri?.host.toLowerCase() ?? '';
 
-      final validHost =
-          host == 'facebook.com' ||
-          host.endsWith('.facebook.com');
+      final validHost = host == 'facebook.com' || host.endsWith('.facebook.com');
 
-      if (uri == null ||
-          !uri.hasScheme ||
-          !validHost) {
-        throw StateError(
-          'Đường dẫn Facebook không hợp lệ.',
-        );
+      if (uri == null || !uri.hasScheme || !validHost) {
+        throw StateError('Đường dẫn Facebook không hợp lệ.');
       }
     }
   }
 
   bool _isValidVietnamesePhone(String value) {
-    return RegExp(
-      r'^(?:0[0-9]{9}|\+84[0-9]{9})$',
-    ).hasMatch(value);
+    return RegExp(r'^(?:0[0-9]{9}|\+84[0-9]{9})$').hasMatch(value);
   }
 
   String _normalizePhone(String value) {
-    return value
-        .trim()
-        .replaceAll(RegExp(r'[\s.-]'), '');
+    return value.trim().replaceAll(RegExp(r'[\s.-]'), '');
   }
 
   String _normalizeFacebookUrl(String value) {
@@ -989,55 +812,40 @@ class ProviderService {
     required List<RoomRatePlan> ratePlans,
   }) {
     if (roomNumber.trim().isEmpty) {
-      throw StateError(
-        'Vui lòng nhập số phòng.',
-      );
+      throw StateError('Vui lòng nhập số phòng.');
     }
 
-    if (firstHourPrice <= 0 ||
-        additionalHourPrice <= 0) {
+    if (firstHourPrice <= 0 || additionalHourPrice <= 0) {
       throw StateError(
-        'Giá giờ đầu và giá từ giờ thứ hai '
-        'phải lớn hơn 0.',
+        'Giá giờ đầu và giá từ giờ thứ hai phải lớn hơn 0.',
       );
     }
 
     if (maxGuests <= 0) {
-      throw StateError(
-        'Số lượng khách tối đa phải lớn hơn 0.',
-      );
+      throw StateError('Số lượng khách tối đa phải lớn hơn 0.');
     }
 
     if (weekendPercent < 0 ||
         weekendPercent > 100 ||
         holidayPercent < 0 ||
         holidayPercent > 100) {
-      throw StateError(
-        'Phần trăm phụ thu phải từ 0 đến 100.',
-      );
+      throw StateError('Phần trăm phụ thu phải từ 0 đến 100.');
     }
 
     final ids = <String>{};
 
     for (final plan in ratePlans) {
       if (!plan.isValid) {
-        throw StateError(
-          'Thông tin combo '
-          '${plan.name} không hợp lệ.',
-        );
+        throw StateError('Thông tin combo ${plan.name} không hợp lệ.');
       }
 
       if (!ids.add(plan.id)) {
-        throw StateError(
-          'Mã combo ${plan.id} đang bị trùng.',
-        );
+        throw StateError('Mã combo ${plan.id} đang bị trùng.');
       }
     }
   }
 
-  List<RoomRatePlan> _normalizeRatePlans(
-    List<RoomRatePlan> plans,
-  ) {
+  List<RoomRatePlan> _normalizeRatePlans(List<RoomRatePlan> plans) {
     final result = <String, RoomRatePlan>{};
 
     for (final plan in plans) {
@@ -1049,9 +857,7 @@ class ProviderService {
     return result.values.toList();
   }
 
-  Future<void> _synchronizeMinimumPrices(
-    String hotelId,
-  ) async {
+  Future<void> _synchronizeMinimumPrices(String hotelId) async {
     final snapshot = await _firestore
         .collection('rooms')
         .where('hotelId', isEqualTo: hotelId)
@@ -1066,48 +872,27 @@ class ProviderService {
         )
         .toList();
 
-    double minimum(
-      Iterable<double> source,
-    ) {
-      final values = source
-          .where((value) => value > 0)
-          .toList();
+    double minimum(Iterable<double> source) {
+      final values = source.where((value) => value > 0).toList();
 
       if (values.isEmpty) return 0;
 
-      return values.reduce(
-        (a, b) => a < b ? a : b,
-      );
+      return values.reduce((a, b) => a < b ? a : b);
     }
 
-    await _firestore
-        .collection('hotels')
-        .doc(hotelId)
-        .update({
-          'minPrice': minimum(
-            rooms.map((room) => room.price),
-          ),
-          'minHourlyPrice': minimum(
-            rooms.map(
-              (room) =>
-                  room.effectiveFirstHourPrice,
-            ),
-          ),
-          'minFirstHourPrice': minimum(
-            rooms.map(
-              (room) =>
-                  room.effectiveFirstHourPrice,
-            ),
-          ),
-          'minAdditionalHourPrice': minimum(
-            rooms.map(
-              (room) =>
-                  room.effectiveAdditionalHourPrice,
-            ),
-          ),
-          'updatedAt':
-              FieldValue.serverTimestamp(),
-        });
+    await _firestore.collection('hotels').doc(hotelId).update({
+      'minPrice': minimum(rooms.map((room) => room.price)),
+      'minHourlyPrice': minimum(
+        rooms.map((room) => room.effectiveFirstHourPrice),
+      ),
+      'minFirstHourPrice': minimum(
+        rooms.map((room) => room.effectiveFirstHourPrice),
+      ),
+      'minAdditionalHourPrice': minimum(
+        rooms.map((room) => room.effectiveAdditionalHourPrice),
+      ),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   List<String> _readScheduleIds(
@@ -1139,40 +924,26 @@ class ProviderService {
   ) {
     final ids = <String>[];
 
-    var cursor = DateTime(
-      checkIn.year,
-      checkIn.month,
-    );
+    var cursor = DateTime(checkIn.year, checkIn.month);
 
     final lastMoment = checkOut.subtract(
       const Duration(microseconds: 1),
     );
 
-    final lastMonth = DateTime(
-      lastMoment.year,
-      lastMoment.month,
-    );
+    final lastMonth = DateTime(lastMoment.year, lastMoment.month);
 
     while (!cursor.isAfter(lastMonth)) {
-      final month =
-          cursor.month.toString().padLeft(2, '0');
+      final month = cursor.month.toString().padLeft(2, '0');
 
-      ids.add(
-        '${roomId}_${cursor.year}$month',
-      );
+      ids.add('${roomId}_${cursor.year}$month');
 
-      cursor = DateTime(
-        cursor.year,
-        cursor.month + 1,
-      );
+      cursor = DateTime(cursor.year, cursor.month + 1);
     }
 
     return ids;
   }
 
-  Map<String, dynamic> _readReservations(
-    dynamic value,
-  ) {
+  Map<String, dynamic> _readReservations(dynamic value) {
     if (value is Map) {
       return Map<String, dynamic>.from(value);
     }
@@ -1180,9 +951,7 @@ class ProviderService {
     return {};
   }
 
-  List<String> _normalizeList(
-    List<String> values,
-  ) {
+  List<String> _normalizeList(List<String> values) {
     return values
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
@@ -1192,9 +961,7 @@ class ProviderService {
 
   void _ensureOwnership(String ownerId) {
     if (ownerId != providerId) {
-      throw StateError(
-        'Bạn không có quyền thay đổi dữ liệu này.',
-      );
+      throw StateError('Bạn không có quyền thay đổi dữ liệu này.');
     }
   }
 }

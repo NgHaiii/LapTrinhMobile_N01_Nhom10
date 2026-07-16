@@ -116,11 +116,11 @@ class ChatMessageModel {
   ) {
     return ChatMessageModel(
       id: id,
-      sessionId: data['sessionId'] as String? ?? '',
-      userId: data['userId'] as String? ?? '',
-      content: data['content'] as String? ?? '',
-      sender: ChatSender.fromValue(data['sender'] as String?),
-      type: ChatMessageType.fromValue(data['type'] as String?),
+      sessionId: _stringValue(data['sessionId']),
+      userId: _stringValue(data['userId']),
+      content: _stringValue(data['content']),
+      sender: ChatSender.fromValue(_nullableString(data['sender'])),
+      type: ChatMessageType.fromValue(_nullableString(data['type'])),
       suggestionIds: _stringList(data['suggestionIds']),
       createdAt: _dateTime(data['createdAt']),
     );
@@ -159,6 +159,14 @@ class ChatMessageModel {
       createdAt: createdAt ?? this.createdAt,
     );
   }
+}
+
+String _stringValue(dynamic value) {
+  return value is String ? value : '';
+}
+
+String? _nullableString(dynamic value) {
+  return value is String ? value : null;
 }
 
 List<String> _stringList(dynamic value) {

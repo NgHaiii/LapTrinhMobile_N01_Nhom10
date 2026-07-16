@@ -2244,6 +2244,11 @@ match /pointTransactions/{transactionId} {
  * TRAVEL CHAT SESSIONS
  */
 match /travelChatSessions/{sessionId} {
+  function chatSessionPath() {
+    return /databases/$(database)
+      /documents/travelChatSessions/$(sessionId);
+  }
+
   function chatSessionOwnerCreate() {
     return activeUser()
       && request.resource.data.userId == request.auth.uid;
@@ -2254,7 +2259,20 @@ match /travelChatSessions/{sessionId} {
       && resource.data.userId == request.auth.uid;
   }
 
-  allow read: if chatSessionOwnerRead() || isAdmin();
+  // Khi tạo cuộc trò chuyện mới, ứng dụng cần get() ID vừa sinh để
+  // kiểm tra document đã tồn tại hay chưa. Document chưa tồn tại không có
+  // resource.data, nên phải cho phép riêng trường hợp này.
+  allow get: if isAdmin()
+    || (
+      activeUser()
+      && (
+        !exists(chatSessionPath())
+        || resource.data.userId == request.auth.uid
+      )
+    );
+
+  // Truy vấn lịch sử vẫn bắt buộc lọc theo userId của người đăng nhập.
+  allow list: if chatSessionOwnerRead() || isAdmin();
 
   allow create: if chatSessionOwnerCreate()
     && request.resource.data.keys().hasOnly([

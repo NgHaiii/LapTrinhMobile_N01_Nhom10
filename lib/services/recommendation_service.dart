@@ -109,7 +109,7 @@ class RecommendationService {
     }
 
     controller =
-        StreamController<List<HotelRecommendation>>(
+        StreamController<List<HotelRecommendation>>.broadcast(
       onListen: () {
         hotelsSubscription = _firestore
             .collection('hotels')
@@ -223,7 +223,7 @@ class RecommendationService {
       controller.add(result.take(safeLimit).toList());
     }
 
-    controller = StreamController<List<RoomRecommendation>>(
+    controller = StreamController<List<RoomRecommendation>>.broadcast(
       onListen: () {
         roomsSubscription = _firestore
             .collection('rooms')

@@ -5,7 +5,7 @@ import '../../../model/hotel_rating.dart';
 import '../../../services/recommendation_service.dart';
 import 'hotel_card.dart';
 
-class RecommendedHotelsSection extends StatelessWidget {
+class RecommendedHotelsSection extends StatefulWidget {
   const RecommendedHotelsSection({
     super.key,
     required this.service,
@@ -22,13 +22,44 @@ class RecommendedHotelsSection extends StatelessWidget {
   final int limit;
 
   @override
+  State<RecommendedHotelsSection> createState() =>
+      _RecommendedHotelsSectionState();
+}
+
+class _RecommendedHotelsSectionState
+    extends State<RecommendedHotelsSection> {
+  late Stream<List<HotelRecommendation>> _recommendationsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _recommendationsStream = _createStream();
+  }
+
+  @override
+  void didUpdateWidget(covariant RecommendedHotelsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.service != widget.service ||
+        oldWidget.province != widget.province ||
+        oldWidget.district != widget.district ||
+        oldWidget.limit != widget.limit) {
+      _recommendationsStream = _createStream();
+    }
+  }
+
+  Stream<List<HotelRecommendation>> _createStream() {
+    return widget.service.watchRecommendedHotels(
+      province: widget.province,
+      district: widget.district,
+      limit: widget.limit,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<HotelRecommendation>>(
-      stream: service.watchRecommendedHotels(
-        province: province,
-        district: district,
-        limit: limit,
-      ),
+      stream: _recommendationsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState ==
                 ConnectionState.waiting &&
@@ -68,7 +99,7 @@ class RecommendedHotelsSection extends StatelessWidget {
                     const SizedBox(height: 7),
                     CustomerHotelCard(
                       hotel: recommendation.hotel,
-                      onTap: () => onHotelTap(
+                      onTap: () => widget.onHotelTap(
                         recommendation.hotel,
                       ),
                     ),

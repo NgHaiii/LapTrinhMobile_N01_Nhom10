@@ -23,6 +23,7 @@ class AiTravelService {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
   final http.Client _client;
+  final Set<String> _newSessionIds = <String>{};
 
   CollectionReference<Map<String, dynamic>> get _messagesRef {
     return _firestore.collection('travelChatMessages');
@@ -89,7 +90,9 @@ class AiTravelService {
   }
 
   String createSessionId() {
-    return _sessionsRef.doc().id;
+    final sessionId = _sessionsRef.doc().id;
+    _newSessionIds.add(sessionId);
+    return sessionId;
   }
 
   Future<void> deleteSession(String sessionId) async {
@@ -234,18 +237,25 @@ class AiTravelService {
     required String firstMessage,
   }) async {
     final doc = _sessionsRef.doc(sessionId);
-    final snapshot = await doc.get();
-
-    if (snapshot.exists) return;
-
-    await doc.set({
+    final sessionData = <String, dynamic>{
       'userId': userId,
       'title': _buildSessionTitle(firstMessage),
       'lastMessage': firstMessage,
       'messageCount': 0,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (_newSessionIds.contains(sessionId)) {
+      await doc.set(sessionData);
+      _newSessionIds.remove(sessionId);
+      return;
+    }
+
+    final snapshot = await doc.get();
+    if (snapshot.exists) return;
+
+    await doc.set(sessionData);
   }
 
   Future<void> _updateSessionAfterMessage({

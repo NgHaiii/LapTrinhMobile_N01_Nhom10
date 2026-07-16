@@ -1,14 +1,16 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
-import '../../model/hotel.dart';
-import '../../model/pricing_quote.dart';
-import '../../model/room.dart';
-import '../../model/room_reservation.dart';
-import '../../services/customer_service.dart';
-import 'widgets/hourly_booking_picker.dart';
-import 'widgets/price_breakdown.dart';
-import 'widgets/rate_plan_selector.dart';
+import '../../../model/hotel.dart';
+import '../../../model/pricing_quote.dart';
+import '../../../model/room.dart';
+import '../../../model/room_rate_plan.dart';
+import '../../../model/room_reservation.dart';
+import '../../../services/customer_service.dart';
+import '../widgets/hourly_booking_picker.dart';
+import '../widgets/price_breakdown.dart';
+import '../widgets/rate_plan_selector.dart';
 
 class BookingFormScreen extends StatefulWidget {
   const BookingFormScreen({

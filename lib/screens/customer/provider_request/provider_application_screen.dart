@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../model/provider_application.dart';
-import '../../services/provider_application_service.dart';
+import '../../../model/provider_application.dart';
+import '../../../services/provider_application_service.dart';
 
 class ProviderApplicationScreen extends StatefulWidget {
   const ProviderApplicationScreen({super.key});

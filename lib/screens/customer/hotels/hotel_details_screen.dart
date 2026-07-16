@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../../model/hotel.dart';
-import '../../model/hotel_rating.dart';
-import '../../model/review.dart';
-import '../../model/room.dart';
-import '../../services/customer_service.dart';
-import '../../services/recommendation_service.dart';
-import '../../services/review_service.dart';
-import 'hotel_reviews_screen.dart';
-import 'room_details_screen.dart';
-import 'widgets/customer_empty_state.dart';
-import 'widgets/image_carousel.dart';
-import 'widgets/rating_summary.dart';
-import 'widgets/room_card.dart';
+import '../../../model/hotel.dart';
+import '../../../model/hotel_rating.dart';
+import '../../../model/review.dart';
+import '../../../model/room.dart';
+import '../../../services/customer_service.dart';
+import '../../../services/recommendation_service.dart';
+import '../../../services/review_service.dart';
+import '../reviews/hotel_reviews_screen.dart';
+import '../rooms/room_details_screen.dart';
+import '../widgets/customer_empty_state.dart';
+import '../widgets/image_carousel.dart';
+import '../widgets/rating_summary.dart';
+import '../widgets/room_card.dart';
 
 class HotelDetailsScreen extends StatefulWidget {
   const HotelDetailsScreen({

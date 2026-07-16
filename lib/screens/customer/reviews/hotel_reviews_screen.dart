@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../model/hotel_rating.dart';
-import '../../model/review.dart';
-import '../../services/review_service.dart';
+import '../../../model/hotel_rating.dart';
+import '../../../model/review.dart';
+import '../../../services/review_service.dart';
 
 class HotelReviewsScreen extends StatefulWidget {
   const HotelReviewsScreen({

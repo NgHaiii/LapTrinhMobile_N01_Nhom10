@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../model/hotel.dart';
-import '../../model/travel_place.dart';
-import '../../services/customer_service.dart';
+import '../../../model/hotel.dart';
+import '../../../model/travel_place.dart';
+import '../../../services/customer_service.dart';
+import '../widgets/customer_empty_state.dart';
+import '../widgets/hotel_card.dart';
 import 'hotel_details_screen.dart';
-import 'widgets/customer_empty_state.dart';
-import 'widgets/hotel_card.dart';
 
 class NearbyHotelsPage extends StatefulWidget {
   const NearbyHotelsPage({

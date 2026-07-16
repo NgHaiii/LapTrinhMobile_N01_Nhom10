@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../model/booking.dart';
-import '../../services/customer_service.dart';
+import '../../../model/booking.dart';
+import '../../../services/customer_service.dart';
+import '../widgets/customer_empty_state.dart';
 import 'booking_details_screen.dart';
-import 'widgets/customer_empty_state.dart';
 
 class MyBookingsScreen extends StatefulWidget {
   const MyBookingsScreen({super.key, required this.service});

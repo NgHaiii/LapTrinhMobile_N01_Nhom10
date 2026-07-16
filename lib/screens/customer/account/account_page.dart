@@ -1,12 +1,12 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../../../services/auth.dart';
 import '../../../services/customer_service.dart';
-import '../my_bookings_screen.dart';
+import '../bookings/my_bookings_screen.dart';
 import '../promotions/loyalty_points_page.dart';
 import '../promotions/my_vouchers_page.dart';
 import '../promotions/promotions_page.dart';
-import '../provider_application_screen.dart';
+import '../provider_request/provider_application_screen.dart';
 import 'notification_settings_page.dart';
 import 'profile_page.dart';
 import 'saved_places_page.dart';

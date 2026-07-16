@@ -1,4 +1,4 @@
-import 'package:firebase_auth/firebase_auth.dart';
+﻿import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -6,7 +6,7 @@ import '../../../model/saved_place.dart';
 import '../../../model/travel_place.dart';
 import '../../../services/saved_place_service.dart';
 import '../../../services/travel_place_service.dart';
-import '../nearby_hotels_page.dart';
+import '../hotels/nearby_hotels_page.dart';
 import 'widgets/travel_place_hero.dart';
 
 class TravelPlaceDetailsPage extends StatefulWidget {

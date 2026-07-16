@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../model/hotel.dart';
-import '../../model/room.dart';
-import '../../model/room_rate_plan.dart';
-import '../../services/customer_service.dart';
-import 'booking_form_screen.dart';
-import 'widgets/image_carousel.dart';
+import '../../../model/hotel.dart';
+import '../../../model/room.dart';
+import '../../../model/room_rate_plan.dart';
+import '../../../services/customer_service.dart';
+import '../bookings/booking_form_screen.dart';
+import '../widgets/image_carousel.dart';
 
 class RoomDetailsScreen extends StatelessWidget {
   const RoomDetailsScreen({

@@ -1,11 +1,11 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../../model/hotel.dart';
 import '../../services/customer_service.dart';
 import '../../services/recommendation_service.dart';
 import 'account/account_page.dart';
-import 'hotel_details_screen.dart';
-import 'my_bookings_screen.dart';
+import 'hotels/hotel_details_screen.dart';
+import 'bookings/my_bookings_screen.dart';
 import 'promotions/promotions_page.dart';
 import 'travel/travel_activities_page.dart';
 import 'widgets/customer_empty_state.dart';

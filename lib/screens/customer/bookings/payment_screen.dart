@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../model/booking.dart';
-import '../../services/customer_service.dart';
-import '../../services/provider_payment_service.dart';
-import 'widgets/payment_countdown.dart';
+import '../../../model/booking.dart';
+import '../../../services/customer_service.dart';
+import '../../../services/provider_payment_service.dart';
+import '../widgets/payment_countdown.dart';
 
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({

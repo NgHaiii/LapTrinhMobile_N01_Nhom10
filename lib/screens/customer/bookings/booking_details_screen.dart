@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../model/booking.dart';
-import '../../model/hotel.dart';
-import '../../services/customer_service.dart';
-import '../../services/review_service.dart';
+import '../../../model/booking.dart';
+import '../../../model/hotel.dart';
+import '../../../services/customer_service.dart';
+import '../../../services/review_service.dart';
+import '../reviews/review_form_screen.dart';
+import '../widgets/payment_countdown.dart';
 import 'payment_screen.dart';
-import 'review_form_screen.dart';
-import 'widgets/payment_countdown.dart';
 
 class BookingDetailsScreen extends StatefulWidget {
   const BookingDetailsScreen({
